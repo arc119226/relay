@@ -135,15 +135,17 @@ export class RelayDO {
   }
 
   /**
-   * 這個 IP 現在有幾條**活著**的連線;順手把死的收掉。
+   * 這批 socket 現在有幾條**活著**的;順手把死的收掉。
    *
    * 半開的 socket 不會觸發 `webSocketClose`,可是 `getWebSockets()` 數得到 ——
    * 不濾掉的話那些格子是單向洩漏的(正式站實測過,見 limits.ts 的 IDLE_REAP_MS)。
-   * 只在連線進來時跑,而且只掃這個 IP 的那幾條,成本是有界的。
+   * **兩道閘餵同一支函式**:每 IP 餵 `getWebSockets(ip)`,全域餵 `getWebSockets()`。
+   * 早先只有每 IP 那條走這裡、全域那條只看 readyState ⇒ 同一個洩漏在全域仍然成立
+   * (見 fetch 裡的註解)。只在連線進來時跑,成本是有界的。
    */
-  private liveCount(ip: string, nowMs: number): number {
+  private reapAndCount(sockets: WebSocket[], nowMs: number): number {
     let live = 0;
-    for (const ws of this.ctx.getWebSockets(ip)) {
+    for (const ws of sockets) {
       if (ws.readyState !== WS_OPEN) continue; // 關閉中/已關,不算也不用收
       if (isStale(readAttachment(ws, nowMs).b.at, nowMs)) {
         try {
@@ -162,14 +164,22 @@ export class RelayDO {
     if (req.headers.get('Upgrade') !== 'websocket') {
       return new Response('expected websocket', { status: 426 });
     }
+    const nowMs = Date.now();
     // 濫用上限(不是產品上限):滿了就拒新連線,既有連線不受影響。
-    // 全域這條只濾 readyState(便宜),不逐條反序列化 attachment —— 那留給每 IP 那條。
+    // 便宜的那一關先跑:只看 readyState,沒到頂就不必逐條反序列化 attachment(可能有 200 條)。
     if (this.ctx.getWebSockets().filter((w) => w.readyState === WS_OPEN).length >= MAX_SOCKETS) {
-      return new Response('relay full', { status: 503 });
+      // 到頂了才掃。半開的 socket readyState **也是 OPEN 而且不會自己消失** ——
+      // 少了這一掃,累積到 MAX_SOCKETS 之後這條 503 就把所有人永久鎖在門外,
+      // 而且它排在每 IP 那條之前,連「回來的 IP 順手清一清」這條自癒路徑都被自己擋掉,
+      // 只有重新部署救得回來。每 IP 那條先前就是這樣漏的,正式站實測到(limits.ts 的 IDLE_REAP_MS)。
+      // 掃描成本有界:只在已經到頂時才發生。
+      if (this.reapAndCount(this.ctx.getWebSockets(), nowMs) >= MAX_SOCKETS) {
+        return new Response('relay full', { status: 503 });
+      }
     }
     // 每個 IP 的上限。wrangler dev 沒有這個標頭,本地全部落在 'unknown' 同一桶,測試開 3 條夠用。
     const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
-    if (this.liveCount(ip, Date.now()) >= MAX_SOCKETS_PER_IP) {
+    if (this.reapAndCount(this.ctx.getWebSockets(ip), nowMs) >= MAX_SOCKETS_PER_IP) {
       return new Response('too many connections from this address', { status: 429 });
     }
     const pair = new WebSocketPair();
@@ -179,7 +189,7 @@ export class RelayDO {
     // IP 當 tag:tag 撐得過 hibernation,上面那個 getWebSockets(ip) 才數得到。
     this.ctx.acceptWebSocket(server, [ip]);
     // 進門給滿桶:第一則 REQ 不該被靜默丟掉,那是使用者最不可能理解的失敗
-    server.serializeAttachment({ b: fullBucket(Date.now()), s: emptyTable() } satisfies Attachment);
+    server.serializeAttachment({ b: fullBucket(nowMs), s: emptyTable() } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
