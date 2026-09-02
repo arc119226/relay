@@ -194,6 +194,16 @@ listener，`/health` 打到死的那顆就回空。要用 PowerShell 照命令�
 
 **證明**：`wss://relay.arc.idv.tw` 用階段 3 那支腳本再打一次，`onPeerJoin` 觸發。
 
+🔧 **2026-09-02 repo 側備妥，儀表板側待做。**
+- `.github/workflows/ci.yml`：lint → typecheck → test → `wrangler deploy --dry-run`。不 deploy、不帶憑證。
+  照抄 dev-blog 的兩條坑：`pnpm/action-setup` 不設 version（packageManager 是唯一真相）、
+  Node 版本讀 `.node-version`。
+- `package.json` 加 `deploy` = `wrangler deploy`（手動用）。
+- README 加「部署」一節，儀表板五個欄位的值與理由列成表。
+- `wrangler.jsonc` 從階段 0 起就是正式的：`name: relay`、`routes: relay.arc.idv.tw`、migration v1 `RelayDO`。
+剩下的是點滑鼠：Workers Builds 連 GitHub、Worker 名字 `relay`、build 留空、deploy `npx wrangler deploy`、
+只建 `main`。做完把 `entry.mjs` 的 RELAY 指到 `wss://relay.arc.idv.tw` 重跑 trystero-smoke，那才是這一階段的證明。
+
 ### 階段 5 · 半小時 · 接進柴米帳
 
 柴米帳 `sync/trystero.ts` 的 `joinRoom` 加一個欄位：

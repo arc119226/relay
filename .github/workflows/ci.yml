@@ -1,0 +1,40 @@
+# 建置閘。部署不在這裡 —— Cloudflare 的 Workers Builds 連著 GitHub,合進 main 它自己會 deploy。
+# 這支只做一件事:壞掉的東西在 PR 階段就紅,不要等到 Workers Builds 才看到。
+#
+# 🔴 不要在 pnpm/action-setup 加 `with: version:`。package.json 有 `packageManager: pnpm@11.9.0`,
+#    action-setup@v4 同時看到兩個版本會直接死在第一步(dev-blog 踩過)。版本的唯一真相是 packageManager。
+# 🔴 Node 版本的唯一真相是 .node-version(Workers Builds 讀的也是它)。
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      # 只驗 wrangler.jsonc 解析得過、src 打包得起來,不連 Cloudflare API ⇒ 不需要憑證。
+      # 刻意**不設** CLOUDFLARE_API_TOKEN:設成空字串等於「有 token 但無效」。
+      - run: pnpm deploy:check
+        env:
+          WRANGLER_SEND_METRICS: "false"

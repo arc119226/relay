@@ -21,14 +21,14 @@
 
 ## 現在的狀態
 
-**規劃完成，零程式碼。** 兩份文件是全部：
+**階段 0–3 完成，驗收通過，等部署。** 46 個測試、14 條 NIP-01 即時檢查、真的 Trystero 兩端 `onPeerJoin`，全綠。文件：
 
 | 檔案 | 內容 |
 | --- | --- |
 | [docs/spec.md](docs/spec.md) | 協定子集。逐行讀 `@trystero-p2p/nostr@0.25.3` 寫出來的，每一條都對得到那 6KB 裡的某幾行。 |
 | [docs/plan.md](docs/plan.md) | 六個階段、每階段怎麼證明、不做的清單、機器鎖。 |
 
-下一步是 plan 的**階段 0**：一支 20 行的 probe DO，實測 `serializeAttachment` 的大小上限。一小時。
+下一步是 plan 的**階段 4**：部署到 `relay.arc.idv.tw`。repo 這一側備妥了，剩下的是 Cloudflare 儀表板，見下面「部署」。
 
 ## 幾個已經定案、不要重新討論的決定
 
@@ -55,3 +55,29 @@
 ## 網域
 
 `relay.arc.idv.tw`。只影響 `wrangler.jsonc` 一行跟柴米帳那一行，要換很便宜。
+
+## 部署
+
+Workers Builds（儀表板上連 GitHub 的 Worker），跟 super-reversi2、柴米帳、dev-blog 同一套。
+CI 只擋壞掉的 PR，**不 deploy**；合進 `main` 就是 Cloudflare 自己 deploy。
+
+儀表板要設的，照抄就好：
+
+| 欄位 | 值 | 為什麼 |
+| --- | --- | --- |
+| Worker 名稱 | `relay` | **要跟 `wrangler.jsonc` 的 `name` 一字不差。** 不一樣會長出第二顆 Worker，網域掛在空的那顆上（柴米帳踩過） |
+| Build command | 留空 | 沒有東西要 build，wrangler 自己打包 |
+| Deploy command | `npx wrangler deploy` | `npx` 會撿 devDependencies pin 的 wrangler 版本 |
+| Build branches | 只建 `main` | 非 production 分支跑 `wrangler deploy` 會紅（dev-blog 踩過），而且對 PR 沒意義 |
+| Root directory | `/` | 單一套件 |
+
+自訂網域 `relay.arc.idv.tw` 在 `wrangler.jsonc` 的 `routes` 裡，deploy 時會自動建 DNS 跟憑證，
+前提是 `arc.idv.tw` 這個 zone 已經在同一個 Cloudflare 帳號底下（其他三個站都是這樣，所以是）。
+
+免費方案的 DO **一律** `new_sqlite_classes`，即使零儲存 —— `new_classes` 要到 deploy 期才炸。
+migration tag 套用後單向不可改寫，所以第一天就用正式類別名 `RelayDO` 燒 v1。
+
+手動 deploy（不走儀表板）：`pnpm deploy`，需要本機有 Cloudflare 憑證。
+
+**部署後的證明**（plan 階段 4）：把 `tools/trystero-smoke/entry.mjs` 的 `RELAY` 改成
+`wss://relay.arc.idv.tw`，重打包，兩邊 `onPeerJoin` 要觸發。
