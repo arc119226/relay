@@ -155,6 +155,33 @@ Trystero 透過我的 relay 完成了 WebRTC 握手。做到這一步，spec 就
 
 **證明**：`onPeerJoin` 在兩邊都觸發；relay 的 `wrangler dev` log 看到 REQ → EVENT → OK 的往返。
 
+✅ **2026-09-02 完成 —— 整個專案的驗收過了。**
+不是 Node 腳本：Node 沒有 `RTCPeerConnection`，`onPeerJoin` 要 WebRTC 握手完成才會觸發。
+做法是 `tools/trystero-smoke/`：用 esbuild 把**柴米帳實際裝的** `trystero/nostr@0.25.3` 打包成一頁
+（`NODE_PATH` 指向 `accounting/packages/client/node_modules`），頁面自己嵌一個 iframe 當第二個 peer
+（module scope 各自一個 `selfId`），兩邊 `relayConfig.urls` 都只指 `ws://127.0.0.1:8787`。
+結果：host 與 guest **都收到 `onPeerJoin`**、各自透過 WebRTC 送一則並收到對方那則、
+`getRelaySockets()` 兩邊都只有 `ws://127.0.0.1:8787`（沒有公共 relay 混進來）、
+Trystero 零 warning、瀏覽器 console 空、relay 端 log 四次 `101 Switching Protocols` 零錯誤。
+從頁面載入到配對完成約 100 ms。
+（`wrangler dev` 的 log 只到 HTTP 層，看不到 WS 訊框；訊框層的往返是階段 2 那 14 條 smoke 證的。）
+
+跑法：
+```bash
+E=$(ls -d node_modules/.pnpm/esbuild@*/node_modules/esbuild/bin/esbuild | head -1)
+NODE_PATH=C:/gitcode/accounting/packages/client/node_modules node "$E" tools/trystero-smoke/entry.mjs   --bundle --format=esm --platform=browser --outfile=tools/trystero-smoke/dist/bundle.js
+pnpm dev                       # relay 在 8787
+# 另開一個靜態伺服器把 tools/trystero-smoke/ 端在 4322（.js 要給 text/javascript，module script 認 MIME）
+# 瀏覽器開 http://127.0.0.1:4322/index.html，看 window.__result 與 iframe 的 contentWindow.__result
+```
+
+⚠️ **Windows 上收 `wrangler dev` 的坑（這次踩了三輪）**：`pkill -f "wrangler dev"` 跟 `taskkill /IM workerd.exe`
+都收不乾淨 —— 真正的父行程命令列是 `node ".../wrangler/bin/wrangler.js" dev --port 8787`（沒有
+「wrangler dev」這個字串），殺掉 workerd 它會立刻再生一顆。四輪 smoke 留下四棵孤兒樹、8787 上四個
+listener，`/health` 打到死的那顆就回空。要用 PowerShell 照命令列殺：
+`Get-CimInstance Win32_Process | ? { $_.CommandLine -match 'wrangler' -and $_.CommandLine -match '8787' } | % { Stop-Process -Id $_.ProcessId -Force }`
+（記得排除 powershell 自己：那段腳本的命令列也含這些字。）
+
 ### 階段 4 · 一小時 · 部署
 
 1. `wrangler.jsonc`：`routes: [{pattern: "relay.arc.idv.tw", custom_domain: true}]`，

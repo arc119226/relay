@@ -6,7 +6,7 @@ NIP-01 子集的 WebSocket 廣播器，跑在 Cloudflare Durable Object 上，�
 
 ## 目前狀態
 
-階段 0–2 完成：骨架、`serializeAttachment` 上限 = 16384、純函式層、**正式的 RelayDO**，40 個測試 + 14 條即時 smoke 全綠。**下一步是 plan 的階段 3**：用真的 `trystero/nostr` 指向 `ws://localhost:8787`，兩個客戶端 `onPeerJoin` 要觸發 —— 那是整個專案的驗收。
+階段 0–3 完成：骨架、`serializeAttachment` 上限 = 16384、純函式層、正式的 RelayDO（經對抗式覆核）、**真的 Trystero 兩端 `onPeerJoin` 過了** —— 專案驗收已通過。46 個測試 + 14 條 NIP-01 smoke + trystero-smoke 頁全綠。**下一步是 plan 的階段 4：部署**（`relay.arc.idv.tw`，要在 Cloudflare 儀表板開 Workers Builds，那是點滑鼠不是寫程式）。
 plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把那一階段標掉。
 
 ## 鐵律
@@ -30,7 +30,10 @@ pnpm check          # lint → typecheck → test，commit 前跑這個
 pnpm dev            # wrangler dev，port 8787
 pnpm deploy:check   # wrangler deploy --dry-run
 node tools/smoke-nip01.mjs   # 對跑著的 relay 做 14 條 NIP-01 即時檢查（先 pnpm dev）
+# 真的 Trystero 兩端配對：tools/trystero-smoke/（打包與跑法見 plan 階段 3）
 ```
+
+⚠️ Windows 上 `wrangler dev` 收不乾淨會留孤兒、8787 上多個 listener、`/health` 回空。殺法見 plan 階段 3 最後那段。
 
 ## 參照
 
