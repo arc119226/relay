@@ -73,3 +73,19 @@ describe('matches:三個條件全成立才 true', () => {
     expect(matches(B, batch)).toBe(true);
   });
 });
+
+// isFilter 是給殼層從 attachment 讀回訂閱表用的守衛;跟上面共用同一份 fixture
+import { isFilter } from '../src/match';
+
+describe('isFilter:attachment 讀回來的東西是不是我們寫出去的 Filter', () => {
+  it('normalizeFilter 的產物一定過', () => {
+    expect(isFilter(F)).toBe(true);
+    expect(isFilter(normalizeFilter({ kinds: [A.kind], '#x': [FX.topicA] }))).toBe(true); // since 缺席=0 也合法
+  });
+
+  it('原始 NIP 形狀(#x 而不是 topics)不算,壞值不算,永不 throw', () => {
+    for (const raw of [null, 1, [], {}, REQ, { kinds: [A.kind], topics: [FX.topicA] }, { kinds: [A.kind], topics: [FX.topicA], since: -1 }, { kinds: ['x'], topics: [FX.topicA], since: 0 }, { kinds: [A.kind], topics: [1], since: 0 }]) {
+      expect(isFilter(raw), JSON.stringify(raw)).toBe(false);
+    }
+  });
+});

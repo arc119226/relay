@@ -26,6 +26,20 @@ const isKind = (x: unknown): x is number => isInt(x) && x >= KIND_MIN && x <= KI
 const isTopic = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= TOPIC_MAX;
 
 /**
+ * 「這是不是一個我們自己寫出去的 Filter」—— 給殼層從 attachment 讀回訂閱表時用。
+ * attachment 是我們自己寫的,可是 hibernation 之間格式可能改版、或被舊版寫過,
+ * 讀回來不驗形狀就直接 `matches()` 會在 `.includes` 上炸。
+ */
+export function isFilter(x: unknown): x is Filter {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return false;
+  const r = x as Record<string, unknown>;
+  const kinds = r['kinds'];
+  const topics = r['topics'];
+  const since = r['since'];
+  return Array.isArray(kinds) && kinds.every(isKind) && Array.isArray(topics) && topics.every(isTopic) && isInt(since) && since >= 0;
+}
+
+/**
  * 驗形 + 正規化。壞形狀回 null(no-throw)。
  * - `kinds`:非空、全在 ephemeral 區段、長度 ≤ MAX_KINDS_PER_FILTER
  * - `#x`:非空、全是合法主題、長度 ≤ MAX_TOPICS_PER_FILTER

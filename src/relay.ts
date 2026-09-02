@@ -1,59 +1,192 @@
 /**
- * RelayDO。
+ * RelayDO —— NIP-01 子集的廣播器,**單例**(`idFromName('relay')`),零儲存。
  *
- * ⚠️ 階段 0:這支目前是 **probe**,不是 relay。webSocketMessage 的內容是拿來實測
- *    `serializeAttachment` 的大小上限的(plan.md 階段 0)。量到數字之後,這段會被
- *    階段 2 的正式實作整個換掉;只有 fetch 的骨架(426 / 503 / 101 + Hibernation)會留下來。
+ * ## 為什麼全檔零 `ctx.storage`(本檔最重要的一件事)
+ * 事件全在 ephemeral 區段(kind 20000–29999),規格明說 relay 不該存;客戶端的 `since`
+ * 永遠是 `now()`,沒有歷史要查。「什麼都不存」不是伺服器自律不給,是**根本沒有東西可以給**。
+ * `test/storageFree.test.ts` 以原始碼比對守著這條。
  *
- * probe 協定(暫時的):
- *   client → "N"(十進位整數)
- *   DO 試著 serializeAttachment 一個 N bytes 的字串,再 deserializeAttachment 讀回來
- *   DO → {"n":N,"wrote":bool,"readBack":bool,"err":string?}
+ * ## 紀律(照抄 super-reversi2 的 ChatDO,但 fan-out 那段**反過來**)
+ * - 裁決全在純函式(`nip01` / `match` / `limits`);本檔只做 I/O + 時間。
+ * - 訂閱表與令牌桶都隨 socket 走(`serializeAttachment`):hibernation 會清記憶體,
+ *   任何 in-memory 狀態醒來都歸零。上限 16384 bytes(實測,見 limits.ts)。
+ * - **fan-out 包含發送者自己。** 標準 Nostr relay 就是這樣,Trystero 跑在公共 relay 上
+ *   是好的,那個行為是它被驗證過的前提。ChatDO 跳過自己是因為它的客戶端本地上屏;
+ *   這裡不是。storageFree.test 斷言本檔**沒有** `peer === ws` 這種判斷。
+ * - 尺寸閘在 `JSON.parse` **之前**;令牌桶在 `parseClientMsg` **之前**(每一則解析得動的
+ *   訊框都扣一顆,壞形狀的 NOTICE 才不會變成免費的回應通道)。
+ * - 本檔**唯一的 await** 是 `verifyEventId`。桶要在那之前就結算並寫回:DO 的 input gate
+ *   只擋 storage 操作,`crypto.subtle` 的 await 期間同一條 socket 的下一則訊息可能進來,
+ *   桶已經寫回就不會被重複扣或重複給。
  *
- * 讀回來這一步不等於「撐過 hibernation」—— wrangler dev 的 workerd 不會真的把 DO 逐出
- * 記憶體。這裡量的是 **寫入的拒收門檻**,那才是文件沒寫清楚的數字。
+ * ## 回應
+ *   EVENT 收下      → 對每條 socket 的每個訂閱比對,命中就 ["EVENT", subId, event];最後 ["OK", id, true, ""]
+ *   EVENT id 對不上 → ["OK", id, false, "invalid: ..."]
+ *   REQ            → 存訂閱,回 ["EOSE", subId](沒有歷史,立刻 EOSE;Trystero 不看它,守規矩而已)
+ *   CLOSE          → 刪訂閱,不回
+ *   被限流         → 帶 id 的 EVENT 回 ["OK", id, false, "rate-limited: ..."],其他靜默
+ *   壞形狀         → ["NOTICE", "invalid: <reason>"]
+ *   訂閱過量/表滿   → ["NOTICE", "blocked: ..."]
  */
+import { MAX_FRAME, MAX_SOCKETS, MAX_SUBS_PER_SOCKET, bucketOf, fullBucket, takeToken, type Bucket } from './limits';
+import { isFilter, matches, type Filter } from './match';
+import { eoseFrame, eventFrame, noticeFrame, okFrame, parseClientMsg, verifyEventId, type NostrEvent } from './nip01';
+
+/** 隨 socket 走的狀態。鍵名刻意短:這東西要塞進 16 KB 的 attachment。 */
+interface Attachment {
+  readonly b: Bucket;
+  readonly s: Readonly<Record<string, Filter>>;
+}
+
+/** 反序列化容錯:壞值/缺席 = 滿桶、零訂閱(限流與訂閱都不該因為壞資料而失效或誤擋)。 */
+function readAttachment(ws: WebSocket, nowMs: number): Attachment {
+  let raw: unknown = null;
+  try {
+    raw = ws.deserializeAttachment();
+  } catch {
+    raw = null;
+  }
+  const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const s: Record<string, Filter> = {};
+  const rs = r['s'];
+  if (rs && typeof rs === 'object' && !Array.isArray(rs)) {
+    for (const [subId, f] of Object.entries(rs as Record<string, unknown>)) {
+      if (isFilter(f)) s[subId] = f;
+    }
+  }
+  return { b: bucketOf(r['b'], nowMs), s };
+}
+
+/** 寫回。超過 ATTACHMENT_MAX_BYTES 會 throw ⇒ 回 false,由呼叫端決定怎麼講。 */
+function writeAttachment(ws: WebSocket, a: Attachment): boolean {
+  try {
+    ws.serializeAttachment(a);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 送出是 best-effort:對端收攤中不該讓其餘人收不到。 */
+function send(ws: WebSocket, frame: string): void {
+  try {
+    ws.send(frame);
+  } catch {
+    // 對端已關
+  }
+}
+
+/** 被限流時偷看一眼:是帶 id 的 EVENT 就用 OK 講清楚(NIP-01 的 rate-limited 前綴),其他靜默。 */
+function idOfRawEvent(raw: unknown): string | null {
+  if (!Array.isArray(raw) || raw[0] !== 'EVENT') return null;
+  const ev = raw[1];
+  if (!ev || typeof ev !== 'object') return null;
+  const id = (ev as Record<string, unknown>)['id'];
+  return typeof id === 'string' ? id : null;
+}
+
 export class RelayDO {
   private readonly ctx: DurableObjectState;
 
   constructor(ctx: DurableObjectState) {
     this.ctx = ctx;
+    // 刻意沒有 blockConcurrencyWhile 回讀:本 DO 無持久狀態(見檔頭)
   }
 
   fetch(req: Request): Response {
     if (req.headers.get('Upgrade') !== 'websocket') {
       return new Response('expected websocket', { status: 426 });
     }
-    if (this.ctx.getWebSockets().length >= 200) {
-      return new Response('full', { status: 503 });
+    // 濫用上限(不是產品上限):滿了就拒新連線,既有連線不受影響
+    if (this.ctx.getWebSockets().length >= MAX_SOCKETS) {
+      return new Response('relay full', { status: 503 });
     }
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
+    // Hibernation API:交給 runtime 保管,閒置時本 DO 可被逐出記憶體(不計 duration)
     this.ctx.acceptWebSocket(server);
+    // 進門給滿桶:第一則 REQ 不該被靜默丟掉,那是使用者最不可能理解的失敗
+    server.serializeAttachment({ b: fullBucket(Date.now()), s: {} } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    if (typeof message !== 'string') return;
-    const n = Number.parseInt(message, 10);
-    if (!Number.isFinite(n) || n < 0) {
-      ws.send(JSON.stringify({ err: 'send a non-negative integer' }));
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== 'string') return; // 二進位不是這條協定的東西,靜默丟
+    // 尺寸閘在 parse 之前:沒有這道閘,一個壞客戶端可以拿 32 MiB 反覆逼 DO 解析而不花令牌
+    if (message.length > MAX_FRAME) return;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(message);
+    } catch {
+      return; // 壞 JSON 靜默丟
+    }
+
+    const nowMs = Date.now();
+    const att = readAttachment(ws, nowMs);
+    const gate = takeToken(att.b, nowMs);
+    const subs = att.s;
+
+    if (!gate.ok) {
+      writeAttachment(ws, { b: gate.next, s: subs }); // 被擋也要寫回=被擋的人要被計時
+      const id = idOfRawEvent(raw);
+      if (id !== null) send(ws, okFrame(id, false, 'rate-limited: slow down'));
       return;
     }
-    const payload = 'x'.repeat(n);
-    let wrote = false;
-    let readBack = false;
-    let err: string | undefined;
-    try {
-      ws.serializeAttachment(payload);
-      wrote = true;
-      const back = ws.deserializeAttachment();
-      readBack = typeof back === 'string' && back.length === n;
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+
+    const verdict = parseClientMsg(raw, Math.floor(nowMs / 1000));
+    if (!verdict.ok) {
+      writeAttachment(ws, { b: gate.next, s: subs });
+      send(ws, noticeFrame(`invalid: ${verdict.reason}`));
+      return;
     }
-    ws.send(JSON.stringify({ n, wrote, readBack, ...(err === undefined ? {} : { err }) }));
+    const msg = verdict.msg;
+
+    if (msg.t === 'req') {
+      const isNew = !(msg.subId in subs);
+      if (isNew && Object.keys(subs).length >= MAX_SUBS_PER_SOCKET) {
+        writeAttachment(ws, { b: gate.next, s: subs });
+        send(ws, noticeFrame('blocked: too many subscriptions'));
+        return;
+      }
+      // 同一個 subId 再送 = 覆蓋(Trystero 的批次就是這樣運作)
+      const next: Attachment = { b: gate.next, s: { ...subs, [msg.subId]: msg.filter } };
+      if (!writeAttachment(ws, next)) {
+        writeAttachment(ws, { b: gate.next, s: subs }); // 退回原本的表,至少桶要寫回
+        send(ws, noticeFrame('blocked: subscription table full'));
+        return;
+      }
+      send(ws, eoseFrame(msg.subId)); // 沒有歷史,立刻 EOSE
+      return;
+    }
+
+    if (msg.t === 'close') {
+      const { [msg.subId]: _gone, ...rest } = subs;
+      void _gone;
+      writeAttachment(ws, { b: gate.next, s: rest });
+      return;
+    }
+
+    // EVENT。桶先寫回(同步),再做本檔唯一的 await(理由見檔頭)。
+    writeAttachment(ws, { b: gate.next, s: subs });
+    const event = msg.event;
+    if (!(await verifyEventId(event))) {
+      send(ws, okFrame(event.id, false, 'invalid: id does not match content'));
+      return;
+    }
+    this.fanOut(event, nowMs);
+    send(ws, okFrame(event.id, true));
+  }
+
+  /** 對每條 socket 的每個訂閱比對;**包含發送者自己**(spec §3)。一個訂閱命中就送一則。 */
+  private fanOut(event: NostrEvent, nowMs: number): void {
+    for (const peer of this.ctx.getWebSockets()) {
+      const { s } = readAttachment(peer, nowMs);
+      for (const subId of Object.keys(s)) {
+        const f = s[subId];
+        if (f !== undefined && matches(event, f)) send(peer, eventFrame(subId, event));
+      }
+    }
   }
 
   webSocketClose(ws: WebSocket): void {
