@@ -6,7 +6,7 @@ NIP-01 子集的 WebSocket 廣播器，跑在 Cloudflare Durable Object 上，�
 
 ## 目前狀態
 
-階段 0、1 完成（骨架、`serializeAttachment` 上限 = 16384、純函式層 + 30 個測試全綠）。**下一步是 plan 的階段 2**：把 `src/relay.ts` 從 probe 換成正式的 DO，並寫 `test/storageFree.test.ts` 機器鎖。
+階段 0–2 完成：骨架、`serializeAttachment` 上限 = 16384、純函式層、**正式的 RelayDO**，40 個測試 + 14 條即時 smoke 全綠。**下一步是 plan 的階段 3**：用真的 `trystero/nostr` 指向 `ws://localhost:8787`，兩個客戶端 `onPeerJoin` 要觸發 —— 那是整個專案的驗收。
 plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把那一階段標掉。
 
 ## 鐵律
@@ -28,6 +28,7 @@ plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把
 pnpm check          # lint → typecheck → test，commit 前跑這個
 pnpm dev            # wrangler dev，port 8787
 pnpm deploy:check   # wrangler deploy --dry-run
+node tools/smoke-nip01.mjs   # 對跑著的 relay 做 14 條 NIP-01 即時檢查（先 pnpm dev）
 ```
 
 ## 參照

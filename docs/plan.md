@@ -118,6 +118,15 @@ eslint 兩條鐵律（禁 fetch/第三方 import；葉檔禁 Date.now/Math.rando
 - `storageFree.test.ts` 綠：零 `storage` / 零 `setAlarm` / 零 `.push(` / 尺寸閘早於 `JSON.parse` /
   **沒有 `peer === ws` 這種跳過自己的判斷**（跟 ChatDO 的鎖剛好反過來）
 
+✅ **2026-09-02 完成。** `pnpm check` 全綠：**40 個測試**（+8 條 storageFree 結構鎖，第一次就過）。
+沒有手打兩個分頁 —— 寫成 `tools/smoke-nip01.mjs`，用 Node 的 `WebSocket` 對 `wrangler dev` 跑
+**14 條即時檢查**全過：REQ→EOSE、A 訂 B 發 A 收、**B 收到自己的（沒跳過發送者）**、tags 原樣、
+竄改 id → `OK false invalid:`、壞 filter → `NOTICE`、壞 JSON 靜默、別的主題不扇出、
+CLOSE 之後 A 收不到而 B 還有回聲、60 則爆發 → 42 收 18 擋（桶 40 + 爆發期間回補）。
+跑法：`pnpm dev` 起來之後 `node tools/smoke-nip01.mjs`。
+plan 之外多做的一件事：`match.ts` 加了 `isFilter` 守衛 —— attachment 讀回來不驗形狀就直接
+`matches()`，遇到舊版寫的格式會在 `.includes` 上炸。
+
 ### 階段 3 · 一小時 · 用真的 Trystero 打
 
 不手打協定了，直接讓真的客戶端來：
