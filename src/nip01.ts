@@ -126,4 +126,8 @@ export async function verifyEventId(e: NostrEvent): Promise<boolean> {
 export const okFrame = (id: string, ok: boolean, reason = ''): string => JSON.stringify(['OK', id, ok, reason]);
 export const eoseFrame = (subId: string): string => JSON.stringify(['EOSE', subId]);
 export const noticeFrame = (msg: string): string => JSON.stringify(['NOTICE', msg]);
-export const eventFrame = (subId: string, e: NostrEvent): string => JSON.stringify(['EVENT', subId, e]);
+/**
+ * 事件框架。`eventJson` 是**已經序列化過**的事件 —— fan-out 對每個命中的訂閱各送一則,
+ * 事件本身只該 stringify 一次(對抗式覆核抓到:4000 次重複 stringify 一則 64K 的事件要幾百 ms)。
+ */
+export const eventFrame = (subId: string, eventJson: string): string => `["EVENT",${JSON.stringify(subId)},${eventJson}]`;

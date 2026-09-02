@@ -5,7 +5,7 @@
  * (`authors` / `ids` / `until` / `limit` / `#e` / `#p`)**靜默丟掉**,不當錯誤:
  * 未來換一個會多送欄位的客戶端,relay 還是能用,只是那些條件不生效。
  */
-import { KIND_MAX, KIND_MIN, MAX_KINDS_PER_FILTER, MAX_TOPICS_PER_FILTER, TOPIC_MAX } from './limits';
+import { CLOCK_SKEW_S, KIND_MAX, KIND_MIN, MAX_KINDS_PER_FILTER, MAX_TOPICS_PER_FILTER, TOPIC_MAX } from './limits';
 
 /** 正規化後的 filter。`since` 缺席 = 0(NIP-01 語意:不限)。 */
 export interface Filter {
@@ -68,10 +68,17 @@ export function normalizeFilter(raw: unknown): Filter | null {
   return { kinds: [...new Set(kinds)], since, topics: [...new Set(topics)] };
 }
 
-/** 三個條件全成立才 true(spec §3)。 */
+/**
+ * 三個條件全成立才 true(spec §3)。
+ *
+ * `since` 那條放了 CLOCK_SKEW_S 的容忍。Trystero 的 `since` 是**訂閱那支手機**的 `now()`,
+ * `created_at` 是**發送那支手機**的 `now()`;發送方時鐘慢了 δ 秒,它的每一則都會被嚴格的
+ * `since` 擋到 δ 秒之後 —— 配對就晚 δ 秒才成。這個 relay 什麼都不存,`since` 對它本來就
+ * 沒有「過濾歷史」的意義,只剩「擋掉時鐘歪的活事件」這個副作用,所以放寬是純收益。
+ */
 export function matches(event: Matchable, filter: Filter): boolean {
   if (!filter.kinds.includes(event.kind)) return false;
-  if (event.created_at < filter.since) return false;
+  if (event.created_at + CLOCK_SKEW_S < filter.since) return false;
   for (const tag of event.tags) {
     if (tag[0] === 'x' && tag[1] !== undefined && filter.topics.includes(tag[1])) return true;
   }

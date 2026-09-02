@@ -100,3 +100,20 @@ describe('parseClientMsg:REQ / CLOSE', () => {
     expect(r).toEqual({ ok: true, msg: { t: 'close', subId: 'sub-1' } });
   });
 });
+
+// 回應框架。eventFrame 吃**已序列化**的事件,fan-out 才能只 stringify 一次
+import { eoseFrame, eventFrame, noticeFrame, okFrame } from '../src/nip01';
+
+describe('回應框架', () => {
+  it('eventFrame 拼出來的東西 parse 回去等於 ["EVENT", subId, event],subId 有引號逃逸', () => {
+    const json = JSON.stringify(A);
+    expect(JSON.parse(eventFrame('sub"quote', json))).toEqual(['EVENT', 'sub"quote', A]);
+  });
+
+  it('OK / EOSE / NOTICE 是合法 JSON 且形狀正確', () => {
+    expect(JSON.parse(okFrame(A.id, true))).toEqual(['OK', A.id, true, '']);
+    expect(JSON.parse(okFrame(A.id, false, 'rate-limited: x'))).toEqual(['OK', A.id, false, 'rate-limited: x']);
+    expect(JSON.parse(eoseFrame('s'))).toEqual(['EOSE', 's']);
+    expect(JSON.parse(noticeFrame('invalid: filter'))).toEqual(['NOTICE', 'invalid: filter']);
+  });
+});

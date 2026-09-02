@@ -17,6 +17,7 @@ plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把
 4. **fan-out 要回送給發送者自己。** 這跟 super-reversi2 的 `ChatDO` 相反。不要從那邊複製貼上，`chatStorageFree.test` 有一條 `peer === ws` 的斷言會反過來逼你留著錯的行為。
 5. **不驗 schnorr 簽章，不拉 secp256k1 進來。** 理由在 spec §4。`id` 的 SHA-256 要驗。
 6. **尺寸閘在 `JSON.parse` 之前。** 順序即契約，測試找的是判斷式的位置不是識別字。
+7. **對抗式覆核補的四道閘不能退**：socket 以 `CF-Connecting-IP` 當 tag、每 IP 上限；DO 層總量桶在 await 之前結算；fan-out 只 `JSON.stringify` 事件一次；訂閱表 `Object.create(null)` + `Object.hasOwn`，永遠不用 `in`。`storageFree.test.ts` 最後一組 describe 鎖著這四條，改 `relay.ts` 要一起過。
 
 ## 不做
 

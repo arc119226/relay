@@ -9,6 +9,8 @@ import SRC from '../src/relay.ts?raw';
 
 /** 剝掉註解再比對 —— 檔頭正文會提到 `ctx.storage` 這幾個字,那不算違規 */
 const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+/** fanOut 那個方法的本體(從簽名到下一個方法) */
+const FANOUT = CODE.slice(CODE.indexOf('fanOut('), CODE.indexOf('webSocketClose'));
 
 describe('RelayDO 零持久化(鐵律 1)', () => {
   it('全檔零 storage:沒有 ctx.storage / setAlarm / transaction / blockConcurrencyWhile', () => {
@@ -66,5 +68,34 @@ describe('RelayDO 結構鎖', () => {
 
   it('不拉簽章驗證進來(鐵律 5)', () => {
     expect(/noble|secp256k1|schnorr/i.test(CODE), 'relay.ts 不該碰 secp256k1').toBe(false);
+  });
+});
+
+describe('對抗式覆核之後補的三道閘(2026-09-02)', () => {
+  it('socket 以 IP 當 tag,而且 fetch 有每個 IP 的上限', () => {
+    // 200 條閒置連線的免費鎖死,唯一不用 storage 的解法就是 tag
+    expect(CODE).toContain('CF-Connecting-IP');
+    expect(/acceptWebSocket\(server,\s*\[/.test(CODE), 'acceptWebSocket 要帶 tag 陣列').toBe(true);
+    expect(/getWebSockets\(ip\)\.length\s*>=\s*MAX_SOCKETS_PER_IP/.test(CODE), '要用 getWebSockets(ip) 數這個 IP 的連線').toBe(true);
+  });
+
+  it('DO 層有總量桶,而且在 await 之前結算', () => {
+    expect(CODE).toContain('DO_EVENT_CAP');
+    const relayGate = CODE.indexOf('DO_EVENT_REFILL_MS)');
+    const verify = CODE.indexOf('await verifyEventId');
+    expect(relayGate, '沒有 DO 層的桶').toBeGreaterThan(-1);
+    expect(relayGate, 'DO 層的桶要在 await 之前').toBeLessThan(verify);
+  });
+
+  it('fan-out 只 stringify 事件一次', () => {
+    expect(FANOUT.length, '找不到 fanOut 本體').toBeGreaterThan(50);
+    expect((FANOUT.match(/JSON\.stringify/g) ?? []).length, 'fanOut 裡只該有一次 JSON.stringify(事件)').toBe(1);
+    expect(FANOUT).toContain('eventFrame(');
+  });
+
+  it('訂閱表不走原型鏈:Object.create(null) + Object.hasOwn,沒有 `in subs`', () => {
+    expect(CODE).toContain('Object.create(null)');
+    expect(CODE).toContain('Object.hasOwn(');
+    expect(/\bin subs\b/.test(CODE), '`subId in subs` 會把 toString / __proto__ 當成已存在').toBe(false);
   });
 });

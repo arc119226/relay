@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import FX from './fixtures/trystero.json';
-import { MAX_KINDS_PER_FILTER, MAX_TOPICS_PER_FILTER } from '../src/limits';
-import { matches, normalizeFilter, type Filter } from '../src/match';
+import { CLOCK_SKEW_S, MAX_KINDS_PER_FILTER, MAX_TOPICS_PER_FILTER } from '../src/limits';
+import { isFilter, matches, normalizeFilter, type Filter } from '../src/match';
 import type { NostrEvent } from '../src/nip01';
 
 const A = FX.eventA as NostrEvent;
@@ -56,9 +56,12 @@ describe('matches:三個條件全成立才 true', () => {
     expect(matches({ ...A, kind: A.kind + 1 }, F)).toBe(false);
   });
 
-  it('created_at < since → false;等於 since → true', () => {
-    expect(matches({ ...A, created_at: F.since - 1 }, F)).toBe(false);
+  it('since 放了 CLOCK_SKEW_S 的容忍:慢 15 分鐘以內的時鐘照收,再慢就擋', () => {
+    // 發送方時鐘慢 δ 秒,created_at 就比訂閱方的 since 小 δ;嚴格比對會讓配對晚 δ 秒才成
+    expect(matches({ ...A, created_at: F.since - CLOCK_SKEW_S }, F)).toBe(true);
+    expect(matches({ ...A, created_at: F.since - CLOCK_SKEW_S - 1 }, F)).toBe(false);
     expect(matches({ ...A, created_at: F.since }, F)).toBe(true);
+    expect(matches({ ...A, created_at: F.since + 10 }, F)).toBe(true);
   });
 
   it('只認 x 標籤;其他標籤帶同名值不算', () => {
@@ -73,9 +76,6 @@ describe('matches:三個條件全成立才 true', () => {
     expect(matches(B, batch)).toBe(true);
   });
 });
-
-// isFilter 是給殼層從 attachment 讀回訂閱表用的守衛;跟上面共用同一份 fixture
-import { isFilter } from '../src/match';
 
 describe('isFilter:attachment 讀回來的東西是不是我們寫出去的 Filter', () => {
   it('normalizeFilter 的產物一定過', () => {

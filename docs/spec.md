@@ -102,7 +102,7 @@
 
 ```
 event.kind ∈ filter.kinds
-event.created_at >= filter.since
+event.created_at + CLOCK_SKEW_S >= filter.since    （時鐘容忍；relay 沒有歷史，since 只剩「擋時鐘歪的活事件」這個副作用，放寬是純收益）
 ∃ tag ∈ event.tags 使得 tag[0] === "x" 且 tag[1] ∈ filter["#x"]
 ```
 
@@ -178,12 +178,14 @@ const { secretKey, publicKey } = schnorr.keygen();
 
 | 項目 | 建議 | 理由 |
 | --- | --- | --- |
-| 單則訊息大小 | 64 KB | SDP 約 2KB，留很大的餘裕。**要在 parse 之前擋** |
+| 單則訊息大小 | 16384 個 UTF-16 code unit（CJK 最多約 48 KB） | SDP 約 2KB，8 倍餘裕。`string.length` 數的是 code unit 不是 byte。**要在 parse 之前擋** |
 | 每條連線的訂閱數 | 20 | 250 主題一批，正常用一兩個就夠 |
 | 單一 filter 的 `#x` 數 | 16 | 一個房間只送 2 個；250 是客戶端批次上限，不是需求（見 §6） |
 | `kinds` 陣列長度 | 16 | 同上 |
 | 事件速率 | 20/秒，突發 40 | 撮合是短暫爆量，不是持續流量 |
 | 同時連線數 | 200 | 跟 `ChatDO` 同一個量級 |
+| 每個 IP 的同時連線數 | 8 | 兩支手機同一個 NAT 也塞得下。沒有這條，200 條**閒置**連線就能讓所有真客戶端永遠吃 503，攻擊者零成本。socket 用 IP 當 tag |
+| 整顆 DO 的事件速率 | 爆發 200，穩態 50/秒 | 每條 socket 的桶擋不了 200 條各自合規地灌；一則事件要對所有訂閱扇出，總量才是 DO 的成本。記憶體內，醒來重置 |
 | `created_at` 容忍度 | ±15 分鐘 | 手機時鐘會歪。柴米帳自己也處理過時鐘漂移 |
 
 ---

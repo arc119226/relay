@@ -19,6 +19,15 @@
  *   只擋 storage 操作,`crypto.subtle` 的 await 期間同一條 socket 的下一則訊息可能進來,
  *   桶已經寫回就不會被重複扣或重複給。
  *
+ * ## 對抗式覆核之後補的三道閘(2026-09-02)
+ * - **每個 IP 的連線上限**(socket 以 IP 當 tag,tag 撐得過 hibernation)。沒有它,
+ *   200 條閒置連線就能讓所有真正的客戶端永遠吃 503,而攻擊者一毛錢都不用花。
+ * - **DO 層的總量桶**(記憶體內)。每條 socket 的桶擋不了 200 條 socket 各自合規地灌;
+ *   一則接受的事件要對每條 socket 的每個訂閱扇出,總量才是 DO 的成本。
+ * - **事件只 stringify 一次**,每個訂閱只拼上 subId。4000 次重複序列化一則事件要幾百 ms。
+ * - 訂閱表用 `Object.create(null)` + `Object.hasOwn`:subId 叫 `toString` 的話,`in` 會走
+ *   原型鏈說它已存在而跳過上限;叫 `__proto__` 的話,`s[subId] = f` 會把整張表的原型換掉。
+ *
  * ## 回應
  *   EVENT 收下      → 對每條 socket 的每個訂閱比對,命中就 ["EVENT", subId, event];最後 ["OK", id, true, ""]
  *   EVENT id 對不上 → ["OK", id, false, "invalid: ..."]
@@ -28,14 +37,29 @@
  *   壞形狀         → ["NOTICE", "invalid: <reason>"]
  *   訂閱過量/表滿   → ["NOTICE", "blocked: ..."]
  */
-import { MAX_FRAME, MAX_SOCKETS, MAX_SUBS_PER_SOCKET, bucketOf, fullBucket, takeToken, type Bucket } from './limits';
+import {
+  DO_EVENT_CAP,
+  DO_EVENT_REFILL_MS,
+  MAX_FRAME,
+  MAX_SOCKETS,
+  MAX_SOCKETS_PER_IP,
+  MAX_SUBS_PER_SOCKET,
+  bucketOf,
+  fullBucket,
+  takeToken,
+  type Bucket,
+} from './limits';
 import { isFilter, matches, type Filter } from './match';
 import { eoseFrame, eventFrame, noticeFrame, okFrame, parseClientMsg, verifyEventId, type NostrEvent } from './nip01';
+
+/** 訂閱表。**一律 `Object.create(null)`**:普通物件會讓 `__proto__` / `toString` 這種 subId 走進原型鏈。 */
+type SubTable = Record<string, Filter>;
+const emptyTable = (): SubTable => Object.create(null) as SubTable;
 
 /** 隨 socket 走的狀態。鍵名刻意短:這東西要塞進 16 KB 的 attachment。 */
 interface Attachment {
   readonly b: Bucket;
-  readonly s: Readonly<Record<string, Filter>>;
+  readonly s: SubTable;
 }
 
 /** 反序列化容錯:壞值/缺席 = 滿桶、零訂閱(限流與訂閱都不該因為壞資料而失效或誤擋)。 */
@@ -47,7 +71,7 @@ function readAttachment(ws: WebSocket, nowMs: number): Attachment {
     raw = null;
   }
   const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  const s: Record<string, Filter> = {};
+  const s = emptyTable();
   const rs = r['s'];
   if (rs && typeof rs === 'object' && !Array.isArray(rs)) {
     for (const [subId, f] of Object.entries(rs as Record<string, unknown>)) {
@@ -85,8 +109,23 @@ function idOfRawEvent(raw: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
+/** 複製一張表,可選擇改一格或刪一格。結果永遠是 null 原型。 */
+function withSub(subs: SubTable, subId: string, filter: Filter | null): SubTable {
+  const next = emptyTable();
+  for (const [k, v] of Object.entries(subs)) {
+    if (k !== subId) next[k] = v;
+  }
+  if (filter !== null) next[subId] = filter;
+  return next;
+}
+
 export class RelayDO {
   private readonly ctx: DurableObjectState;
+  /**
+   * 整顆 DO 的事件桶。記憶體內 —— hibernation 醒來重置成滿桶,對限流器沒關係,
+   * 對「零儲存」也沒關係(它不是資料,是節流閥)。
+   */
+  private relayBucket: Bucket | null = null;
 
   constructor(ctx: DurableObjectState) {
     this.ctx = ctx;
@@ -101,13 +140,19 @@ export class RelayDO {
     if (this.ctx.getWebSockets().length >= MAX_SOCKETS) {
       return new Response('relay full', { status: 503 });
     }
+    // 每個 IP 的上限。wrangler dev 沒有這個標頭,本地全部落在 'unknown' 同一桶,測試開 3 條夠用。
+    const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
+    if (this.ctx.getWebSockets(ip).length >= MAX_SOCKETS_PER_IP) {
+      return new Response('too many connections from this address', { status: 429 });
+    }
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    // Hibernation API:交給 runtime 保管,閒置時本 DO 可被逐出記憶體(不計 duration)
-    this.ctx.acceptWebSocket(server);
+    // Hibernation API:交給 runtime 保管,閒置時本 DO 可被逐出記憶體(不計 duration)。
+    // IP 當 tag:tag 撐得過 hibernation,上面那個 getWebSockets(ip) 才數得到。
+    this.ctx.acceptWebSocket(server, [ip]);
     // 進門給滿桶:第一則 REQ 不該被靜默丟掉,那是使用者最不可能理解的失敗
-    server.serializeAttachment({ b: fullBucket(Date.now()), s: {} } satisfies Attachment);
+    server.serializeAttachment({ b: fullBucket(Date.now()), s: emptyTable() } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -143,15 +188,14 @@ export class RelayDO {
     const msg = verdict.msg;
 
     if (msg.t === 'req') {
-      const isNew = !(msg.subId in subs);
-      if (isNew && Object.keys(subs).length >= MAX_SUBS_PER_SOCKET) {
+      // 同一個 subId 再送 = 覆蓋(Trystero 的批次就是這樣運作);上限算在合併**之後**
+      const next = withSub(subs, msg.subId, msg.filter);
+      if (!Object.hasOwn(subs, msg.subId) && Object.keys(next).length > MAX_SUBS_PER_SOCKET) {
         writeAttachment(ws, { b: gate.next, s: subs });
         send(ws, noticeFrame('blocked: too many subscriptions'));
         return;
       }
-      // 同一個 subId 再送 = 覆蓋(Trystero 的批次就是這樣運作)
-      const next: Attachment = { b: gate.next, s: { ...subs, [msg.subId]: msg.filter } };
-      if (!writeAttachment(ws, next)) {
+      if (!writeAttachment(ws, { b: gate.next, s: next })) {
         writeAttachment(ws, { b: gate.next, s: subs }); // 退回原本的表,至少桶要寫回
         send(ws, noticeFrame('blocked: subscription table full'));
         return;
@@ -161,15 +205,19 @@ export class RelayDO {
     }
 
     if (msg.t === 'close') {
-      const { [msg.subId]: _gone, ...rest } = subs;
-      void _gone;
-      writeAttachment(ws, { b: gate.next, s: rest });
+      writeAttachment(ws, { b: gate.next, s: withSub(subs, msg.subId, null) });
       return;
     }
 
-    // EVENT。桶先寫回(同步),再做本檔唯一的 await(理由見檔頭)。
-    writeAttachment(ws, { b: gate.next, s: subs });
+    // EVENT。先過 DO 層的總量桶(同步),桶都寫回之後才做本檔唯一的 await(理由見檔頭)。
     const event = msg.event;
+    const relayGate = takeToken(this.relayBucket ?? fullBucket(nowMs, DO_EVENT_CAP), nowMs, DO_EVENT_CAP, DO_EVENT_REFILL_MS);
+    this.relayBucket = relayGate.next;
+    writeAttachment(ws, { b: gate.next, s: subs });
+    if (!relayGate.ok) {
+      send(ws, okFrame(event.id, false, 'rate-limited: relay busy'));
+      return;
+    }
     if (!(await verifyEventId(event))) {
       send(ws, okFrame(event.id, false, 'invalid: id does not match content'));
       return;
@@ -178,13 +226,16 @@ export class RelayDO {
     send(ws, okFrame(event.id, true));
   }
 
-  /** 對每條 socket 的每個訂閱比對;**包含發送者自己**(spec §3)。一個訂閱命中就送一則。 */
+  /**
+   * 對每條 socket 的每個訂閱比對;**包含發送者自己**(spec §3)。一個訂閱命中就送一則。
+   * 事件只序列化一次,每則只拼上 subId。
+   */
   private fanOut(event: NostrEvent, nowMs: number): void {
+    const json = JSON.stringify(event);
     for (const peer of this.ctx.getWebSockets()) {
       const { s } = readAttachment(peer, nowMs);
-      for (const subId of Object.keys(s)) {
-        const f = s[subId];
-        if (f !== undefined && matches(event, f)) send(peer, eventFrame(subId, event));
+      for (const [subId, f] of Object.entries(s)) {
+        if (matches(event, f)) send(peer, eventFrame(subId, json));
       }
     }
   }

@@ -23,11 +23,13 @@
 export const ATTACHMENT_MAX_BYTES = 16_384;
 
 /**
- * 單一訊框位元組上限 —— **在 `JSON.parse` 之前擋**(順序即契約,storageFree.test 鎖著)。
+ * 單一訊框上限,單位是 **UTF-16 code unit**(`string.length`),不是 byte —— CJK 一個字最多 3 bytes,
+ * 所以線上的實際上限約 48 KB。**在 `JSON.parse` 之前擋**(順序即契約,storageFree.test 鎖著)。
  * 限流是解析之後才判的,沒有這道閘,一個壞客戶端可以拿平台允許的 32 MiB 反覆逼 DO
- * 做大型 JSON 解析而不花任何令牌。合法訊框:SDP 約 2 KB,64 KB 是很大的餘裕。
+ * 做大型 JSON 解析而不花任何令牌。合法訊框:SDP 約 2 KB,16K 是 8 倍的餘裕。
+ * (對抗式覆核抓到原本的 64K 讓一則事件的扇出可以吃到 ~192 KB × 4000 次,才收緊的。)
  */
-export const MAX_FRAME = 65_536;
+export const MAX_FRAME = 16_384;
 
 /** 每條連線最多幾個開啟中的訂閱(subId)。Trystero 一個房間開 1 個,批次最多幾個。 */
 export const MAX_SUBS_PER_SOCKET = 20;
@@ -37,12 +39,25 @@ export const MAX_TOPICS_PER_FILTER = 16;
 export const MAX_KINDS_PER_FILTER = 16;
 /** 同時連線上限(濫用上限不是產品上限;超過即拒新連線,既有的不受影響) */
 export const MAX_SOCKETS = 200;
+/**
+ * 每個來源 IP 的同時連線上限。兩支手機在同一個 NAT 後面也塞得下。
+ * 沒有這條的話,200 條**閒置**連線(零訊息、零令牌、hibernate 起來連 DO 都不用錢)就能讓
+ * 之後每一個真正的客戶端永遠吃 503 —— 免費的鎖死。socket 用 IP 當 tag,tag 撐得過 hibernation。
+ */
+export const MAX_SOCKETS_PER_IP = 8;
 /** `created_at` 相對於伺服器時間的容忍(秒)。手機時鐘會歪;柴米帳自己也處理過時鐘漂移。 */
 export const CLOCK_SKEW_S = 15 * 60;
 
-/** 令牌桶:容量 40、每 50ms 回一顆 ⇒ 穩態 20 則/s、可爆發 40 則。撮合是短暫爆量不是持續流量。 */
+/** 每條 socket 的令牌桶:容量 40、每 50ms 回一顆 ⇒ 穩態 20 則/s、可爆發 40 則。撮合是短暫爆量不是持續流量。 */
 export const BUCKET_CAP = 40;
 export const BUCKET_REFILL_MS = 50;
+/**
+ * 整顆 DO 的事件桶(記憶體內;hibernation 醒來重置成滿桶,對限流器來說沒關係)。
+ * 每條 socket 的桶只擋單一客戶端,擋不了 200 條 socket **各自合規地**灌 —— 一則接受的事件
+ * 要對每條 socket 的每個訂閱扇出,總量才是 DO 真正的成本。這顆擋總量:爆發 200、穩態 50/s。
+ */
+export const DO_EVENT_CAP = 200;
+export const DO_EVENT_REFILL_MS = 20;
 
 /** 令牌桶狀態(隨 socket 走;`at`=上次結算時刻) */
 export interface Bucket {
@@ -50,15 +65,21 @@ export interface Bucket {
   readonly at: number;
 }
 
-export const fullBucket = (now: number): Bucket => ({ tokens: BUCKET_CAP, at: now });
+export const fullBucket = (now: number, cap: number = BUCKET_CAP): Bucket => ({ tokens: cap, at: now });
 
 /**
  * 取一顆令牌:先按經過時間回補(夾在容量),再決定准不准。
  * 回傳恆帶新桶 —— **拒絕時也要寫回**,否則被擋的人不會被計時、下一則又立刻重試。
+ * `cap` / `refillMs` 預設是每條 socket 的桶;DO 層的總量桶把自己的數字傳進來。
  */
-export function takeToken(bucket: Bucket, now: number): { readonly ok: boolean; readonly next: Bucket } {
+export function takeToken(
+  bucket: Bucket,
+  now: number,
+  cap: number = BUCKET_CAP,
+  refillMs: number = BUCKET_REFILL_MS,
+): { readonly ok: boolean; readonly next: Bucket } {
   const elapsed = Math.max(0, now - bucket.at);
-  const refilled = Math.min(BUCKET_CAP, bucket.tokens + elapsed / BUCKET_REFILL_MS);
+  const refilled = Math.min(cap, bucket.tokens + elapsed / refillMs);
   if (refilled < 1) return { ok: false, next: { tokens: refilled, at: now } };
   return { ok: true, next: { tokens: refilled - 1, at: now } };
 }

@@ -127,6 +127,19 @@ CLOSE 之後 A 收不到而 B 還有回聲、60 則爆發 → 42 收 18 擋（�
 plan 之外多做的一件事：`match.ts` 加了 `isFilter` 守衛 —— attachment 讀回來不驗形狀就直接
 `matches()`，遇到舊版寫的格式會在 `.includes` 上炸。
 
+**對抗式覆核（同日）**：四個面向、12 項發現、駁回 9 項、確認 3 項，全部修掉，測試 40 → 46：
+- **扇出放大**（高）：一則事件對每條 socket 的每個訂閱各 `JSON.stringify` 一次，上限 4000 次；
+  改成只序列化一次、每則拼 subId；加 **DO 層總量桶**（記憶體內，爆發 200 / 穩態 50/s）；
+  `MAX_FRAME` 從 64K 收到 16K code unit（原本 CJK 可以吃到 192 KB）。
+- **免費鎖死**（高）：200 條閒置連線就讓所有真客戶端永遠 503。socket 用 `CF-Connecting-IP`
+  當 tag，`getWebSockets(ip)` 數，**每 IP 8 條**。tag 撐得過 hibernation，零 storage。
+- **`in` 走原型鏈**（低）：subId 叫 `toString` 會跳過上限、叫 `__proto__` 會換掉整張表的原型。
+  訂閱表改 `Object.create(null)` + `Object.hasOwn`，上限算在合併之後。
+- 順手：`since` 放 `CLOCK_SKEW_S` 容忍。發送方時鐘慢 δ 秒，嚴格比對會讓配對晚 δ 秒才成；
+  relay 沒有歷史，`since` 只剩這個副作用，放寬是純收益。
+駁回的 9 項裡有兩項值得記：`message.length` 數的是 UTF-16 code unit 不是 byte（已在 limits 註明）；
+Trystero 對 NOTICE / OK-false 只 `console.warn`，永遠不會因為被拒而重試 —— 所以 REQ 那條路寧可寬。
+
 ### 階段 3 · 一小時 · 用真的 Trystero 打
 
 不手打協定了，直接讓真的客戶端來：
