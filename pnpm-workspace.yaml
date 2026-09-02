@@ -1,0 +1,4 @@
+allowBuilds:
+  # workerd = wrangler dev 的本地 Workers 執行環境(postinstall 下載平台二進位)
+  workerd: true
+  esbuild: true

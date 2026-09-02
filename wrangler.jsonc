@@ -1,0 +1,19 @@
+{
+  // NIP-01 子集的訊令 relay。一顆 DO,零儲存。
+  // 【勿刪】儀表板是 Workers Builds:deploy=`npx wrangler deploy`,靠本檔定位目標。
+  // ⚠️ `name` 要跟儀表板的 Worker 名字一字不差,不然會長出第二顆 Worker
+  //    而網域掛在空的那顆上(柴米帳踩過)。
+  "name": "relay",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-08-01",
+  // workers.dev 留當測試通道;正式域 = 自訂網域(deploy 時自動建 DNS + 憑證)
+  "workers_dev": true,
+  "routes": [{ "pattern": "relay.arc.idv.tw", "custom_domain": true }],
+  "durable_objects": {
+    // 單例:idFromName('relay')。零儲存,但免費方案的 DO 一律得走 new_sqlite_classes
+    "bindings": [{ "name": "RELAY", "class_name": "RelayDO" }]
+  },
+  // migration tag 套用後單向不可改寫 ⇒ 第一天就用正式的類別名,不要拿 ProbeDO 之類
+  // 的暫名燒掉 v1。階段 0 的 probe 只是 RelayDO 暫時的 webSocketMessage 內容。
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayDO"] }]
+}

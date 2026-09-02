@@ -208,7 +208,7 @@ const { secretKey, publicKey } = schnorr.keygen();
 ### 一個 Hibernation 的坑（讀完 core 原始碼之後降級了）
 
 Hibernation 會把記憶體清掉，所以**訂閱狀態必須存進 `serializeAttachment`**，
-跟 token bucket 一樣。那個欄位有大小上限（文件說的量級是 2KB；動手時實測一次）。
+跟 token bucket 一樣。那個欄位有大小上限：**16384 bytes（序列化後）**，2026-09-02 在 wrangler dev 實測，runtime 的錯誤訊息自己講的。一筆訂閱約 250 bytes，放得下 ~60 筆；下面的政策上限留了 3 倍餘裕。
 
 原本擔心「一個 filter 帶 250 個主題塞不下」。讀完 `strategy.mjs` 之後這個擔心縮小了：
 **一個房間只有兩個主題**（root + self），一筆訂閱記錄含 JSON 外殼約 200 bytes。
@@ -298,4 +298,4 @@ DO 外殼（多半可搬）        ~80 行
 純函式的部分（框架解析、filter 比對、限流）可以完全脫離 Cloudflare 測，
 跟 `roomLogic.ts` / `chatLogic.ts` 同一個模式。
 
-第一天先做第 6 節那個 `serializeAttachment` 的實測 —— 現在只是保險，不再是會翻掉架構的未知數。
+第 6 節那個 `serializeAttachment` 的實測已經做了：16384 bytes。沒有翻掉任何東西。

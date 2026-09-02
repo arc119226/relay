@@ -55,6 +55,11 @@ NIP-01 relay **不能跳**（spec §3）。抄過來改最容易把這條抄錯�
    `wrangler dev` 起來用 `websocat` 或瀏覽器 console 打一下，看哪一級開始丟。
 3. **證明**：記下實測上限，寫進 `limits.ts` 的註解。spec §6 那條就有了數字。
 
+✅ **2026-09-02 完成。** 上限是 **16384 bytes**（序列化後），不是記憶中的 2KB。
+runtime 的錯誤訊息直接寫著數字。16380 字元的字串序列化成 16385 bytes ⇒ 結構化複製
+多 5 bytes 表頭。數字進了 `src/limits.ts`，政策上限（20 訂閱 / 16 主題）留了 3 倍餘裕。
+probe 用的是 Node 22 的全域 `WebSocket` 對 `wrangler dev` 二分，不需要 websocat。
+
 這一步可以跟階段 1 並行，但它的結果決定 `MAX_TOPICS_PER_FILTER` 是 16 還是別的數。
 
 ### 階段 1 · 半天 · 純函式層（零 Cloudflare 依賴）
