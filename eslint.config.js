@@ -2,7 +2,8 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['node_modules/**', '.wrangler/**', 'dist/**'] },
+  // `**/dist/**`:trystero-smoke 的打包產物也在 dist 底下,`dist/**` 只會對到頂層那個(踩過)
+  { ignores: ['node_modules/**', '.wrangler/**', '**/dist/**'] },
   ...tseslint.configs.recommended,
   {
     // 鐵律 2:relay 不外呼任何第三方、零依賴(僅 cloudflare:workers 白名單;相對路徑除外)。
