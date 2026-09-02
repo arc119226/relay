@@ -3,7 +3,7 @@
 // (module scope => its own selfId). Both must reach onPeerJoin and exchange one message over WebRTC.
 import { joinRoom, getRelaySockets, selfId } from 'trystero/nostr';
 
-const RELAY = 'ws://127.0.0.1:8787';
+const RELAY = 'wss://relay.arc.idv.tw';
 const role = new URLSearchParams(location.search).get('peer') ?? 'host';
 const t0 = Date.now();
 const out = { role, selfId, relays: null, peerJoined: null, sent: null, got: null, warnings: [], error: null };

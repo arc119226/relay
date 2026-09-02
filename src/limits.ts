@@ -45,6 +45,27 @@ export const MAX_SOCKETS = 200;
  * 之後每一個真正的客戶端永遠吃 503 —— 免費的鎖死。socket 用 IP 當 tag,tag 撐得過 hibernation。
  */
 export const MAX_SOCKETS_PER_IP = 8;
+/**
+ * 多久沒說話就當它死了(毫秒)。**只在達到每 IP 上限時才拿出來用**,平常不掃。
+ *
+ * 為什麼需要:WebSocket 沒有內建的保活。瀏覽器分頁被砍、行程 `process.exit`、手機掉網,
+ * TCP 半開的那一條**不會**觸發 `webSocketClose`,`getWebSockets()` 照樣數得到它。
+ * 那些格子是**單向洩漏**的 —— 累積到上限,真正的客戶端就再也連不上,而症狀只有「配對失敗」。
+ *
+ * 2026-09-02 在正式站實測到:程式寫 8,實際只開得了 6,靜置三分鐘也不會回來。
+ * 兩格被前面測試留下的半開連線永久佔住。對抗式覆核當時就預測過這件事,
+ * 我只做了 IP tag 那一半,沒做死連線回收。
+ *
+ * 5 分鐘是很寬的:Trystero 的 peer 每 5.3 秒就會廣播一次,活著的連線遠遠碰不到這條線。
+ */
+export const IDLE_REAP_MS = 5 * 60_000;
+
+/** 這條 socket 沉默太久了嗎。`lastSeenMs` 就是令牌桶的 `at`(每則訊息都會更新)。 */
+export const isStale = (lastSeenMs: number, nowMs: number): boolean => nowMs - lastSeenMs > IDLE_REAP_MS;
+
+/** `WebSocket.readyState` 的 OPEN。用字面量而不是靜態屬性,免得依賴 runtime 的常數表。 */
+export const WS_OPEN = 1;
+
 /** `created_at` 相對於伺服器時間的容忍(秒)。手機時鐘會歪;柴米帳自己也處理過時鐘漂移。 */
 export const CLOCK_SKEW_S = 15 * 60;
 

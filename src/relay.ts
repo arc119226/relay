@@ -44,8 +44,10 @@ import {
   MAX_SOCKETS,
   MAX_SOCKETS_PER_IP,
   MAX_SUBS_PER_SOCKET,
+  WS_OPEN,
   bucketOf,
   fullBucket,
+  isStale,
   takeToken,
   type Bucket,
 } from './limits';
@@ -132,17 +134,42 @@ export class RelayDO {
     // 刻意沒有 blockConcurrencyWhile 回讀:本 DO 無持久狀態(見檔頭)
   }
 
+  /**
+   * 這個 IP 現在有幾條**活著**的連線;順手把死的收掉。
+   *
+   * 半開的 socket 不會觸發 `webSocketClose`,可是 `getWebSockets()` 數得到 ——
+   * 不濾掉的話那些格子是單向洩漏的(正式站實測過,見 limits.ts 的 IDLE_REAP_MS)。
+   * 只在連線進來時跑,而且只掃這個 IP 的那幾條,成本是有界的。
+   */
+  private liveCount(ip: string, nowMs: number): number {
+    let live = 0;
+    for (const ws of this.ctx.getWebSockets(ip)) {
+      if (ws.readyState !== WS_OPEN) continue; // 關閉中/已關,不算也不用收
+      if (isStale(readAttachment(ws, nowMs).b.at, nowMs)) {
+        try {
+          ws.close(1001, 'idle'); // 順手收掉。close 不是同步生效,所以**這一條本來就不計數**
+        } catch {
+          // 已經在關了
+        }
+        continue;
+      }
+      live++;
+    }
+    return live;
+  }
+
   fetch(req: Request): Response {
     if (req.headers.get('Upgrade') !== 'websocket') {
       return new Response('expected websocket', { status: 426 });
     }
-    // 濫用上限(不是產品上限):滿了就拒新連線,既有連線不受影響
-    if (this.ctx.getWebSockets().length >= MAX_SOCKETS) {
+    // 濫用上限(不是產品上限):滿了就拒新連線,既有連線不受影響。
+    // 全域這條只濾 readyState(便宜),不逐條反序列化 attachment —— 那留給每 IP 那條。
+    if (this.ctx.getWebSockets().filter((w) => w.readyState === WS_OPEN).length >= MAX_SOCKETS) {
       return new Response('relay full', { status: 503 });
     }
     // 每個 IP 的上限。wrangler dev 沒有這個標頭,本地全部落在 'unknown' 同一桶,測試開 3 條夠用。
     const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
-    if (this.ctx.getWebSockets(ip).length >= MAX_SOCKETS_PER_IP) {
+    if (this.liveCount(ip, Date.now()) >= MAX_SOCKETS_PER_IP) {
       return new Response('too many connections from this address', { status: 429 });
     }
     const pair = new WebSocketPair();

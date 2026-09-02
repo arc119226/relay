@@ -194,6 +194,19 @@ listener，`/health` 打到死的那顆就回空。要用 PowerShell 照命令�
 
 **證明**：`wss://relay.arc.idv.tw` 用階段 3 那支腳本再打一次，`onPeerJoin` 觸發。
 
+✅ **2026-09-02 完成。** 正式站跑的是我們的程式（`/health` → `{"ok":true}`、`/nope` → 404、
+`POST /` → 405、`Upgrade` → **101**，那個 101 是 `RelayDO` 回的 ⇒ DO 活著、migration v1 套用了）。
+真的 Trystero 對 `wss://relay.arc.idv.tw`：host 與 guest 都 `onPeerJoin`（2786 / 2727 ms）、
+互相收到訊息、兩邊 `getRelaySockets()` 只有這台、零 warning。14 條 NIP-01 檢查對正式站也全過。
+
+🐛 **順便在正式站抓到一個真的洩漏。** 每 IP 上限寫 8，實際只開得了 6，靜置三分鐘也不回來 ——
+兩格被前面測試留下的**半開 socket** 永久佔住。WebSocket 沒有內建保活，瀏覽器分頁被砍、
+行程 `process.exit`、手機掉網，那條 TCP 半開的**不會**觸發 `webSocketClose`，
+可是 `getWebSockets()` 照樣數得到。這是**單向洩漏**：累積到上限，真客戶端就再也連不上，
+而症狀只有「配對失敗」。對抗式覆核當時預測過（那條 finding 的後半段），我只做了 IP tag 那一半。
+修法見下面那個 commit：`liveCount()` —— 在達到上限時才掃，用令牌桶的 `at` 當最後活動時間，
+沉默超過 `IDLE_REAP_MS`（5 分鐘）就順手 `close(1001,'idle')` 並且不計數。零額外儲存。
+
 🔧 **2026-09-02 repo 側備妥，儀表板側待做。**
 - `.github/workflows/ci.yml`：lint → typecheck → test → `wrangler deploy --dry-run`。不 deploy、不帶憑證。
   照抄 dev-blog 的兩條坑：`pnpm/action-setup` 不設 version（packageManager 是唯一真相）、

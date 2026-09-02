@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACHMENT_MAX_BYTES, BUCKET_CAP, BUCKET_REFILL_MS, MAX_SUBS_PER_SOCKET, MAX_TOPICS_PER_FILTER, bucketOf, fullBucket, takeToken } from '../src/limits';
+import { ATTACHMENT_MAX_BYTES, BUCKET_CAP, BUCKET_REFILL_MS, IDLE_REAP_MS, MAX_SUBS_PER_SOCKET, MAX_TOPICS_PER_FILTER, bucketOf, fullBucket, isStale, takeToken } from '../src/limits';
 
 describe('令牌桶(時間由呼叫端餵=純函數)', () => {
   it('滿桶可爆發 CAP 則,第 CAP+1 則被擋', () => {
@@ -56,5 +56,23 @@ describe('attachment 預算', () => {
     const bucket = JSON.stringify(fullBucket(1_788_356_261_000)).length;
     expect(normalSub * MAX_SUBS_PER_SOCKET + bucket).toBeLessThan(ATTACHMENT_MAX_BYTES / 3);
     expect(worstSub).toBeLessThan(ATTACHMENT_MAX_BYTES / 10);
+  });
+});
+
+describe('isStale:半開連線的回收判準', () => {
+  it('剛連上不算死;沉默超過 IDLE_REAP_MS 才算', () => {
+    const now = 1_788_400_000_000;
+    expect(isStale(now, now)).toBe(false);
+    expect(isStale(now - IDLE_REAP_MS, now)).toBe(false); // 剛好等於門檻:還活著
+    expect(isStale(now - IDLE_REAP_MS - 1, now)).toBe(true);
+  });
+
+  it('門檻遠大於 Trystero 的廣播間隔(5.3 秒)—— 活著的連線碰不到', () => {
+    expect(IDLE_REAP_MS).toBeGreaterThan(5_333 * 10);
+  });
+
+  it('時鐘倒退不會把活的判成死的', () => {
+    const now = 1_788_400_000_000;
+    expect(isStale(now + 60_000, now)).toBe(false);
   });
 });

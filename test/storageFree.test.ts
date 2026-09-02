@@ -76,7 +76,7 @@ describe('對抗式覆核之後補的三道閘(2026-09-02)', () => {
     // 200 條閒置連線的免費鎖死,唯一不用 storage 的解法就是 tag
     expect(CODE).toContain('CF-Connecting-IP');
     expect(/acceptWebSocket\(server,\s*\[/.test(CODE), 'acceptWebSocket 要帶 tag 陣列').toBe(true);
-    expect(/getWebSockets\(ip\)\.length\s*>=\s*MAX_SOCKETS_PER_IP/.test(CODE), '要用 getWebSockets(ip) 數這個 IP 的連線').toBe(true);
+    expect(/liveCount\(ip, Date\.now\(\)\)\s*>=\s*MAX_SOCKETS_PER_IP/.test(CODE), '每 IP 的閘要走 liveCount(會濾掉死的)').toBe(true);
   });
 
   it('DO 層有總量桶,而且在 await 之前結算', () => {
@@ -91,6 +91,16 @@ describe('對抗式覆核之後補的三道閘(2026-09-02)', () => {
     expect(FANOUT.length, '找不到 fanOut 本體').toBeGreaterThan(50);
     expect((FANOUT.match(/JSON\.stringify/g) ?? []).length, 'fanOut 裡只該有一次 JSON.stringify(事件)').toBe(1);
     expect(FANOUT).toContain('eventFrame(');
+  });
+
+  it('連線數要濾掉死的:每 IP 那條走 liveCount,全域那條濾 readyState', () => {
+    // 半開的 socket 不觸發 webSocketClose 但 getWebSockets() 數得到 ⇒ 格子單向洩漏。
+    // 正式站實測過:上限寫 8 實際只開得了 6,靜置三分鐘也不回來。
+    expect(CODE).toContain('liveCount(');
+    expect(CODE).toContain('isStale(');
+    expect(/getWebSockets\(\)\.filter\(\(w\) => w\.readyState === WS_OPEN\)/.test(CODE), '全域那條要濾 readyState').toBe(true);
+    // 每 IP 那條不可以再直接數 getWebSockets(ip).length
+    expect(/getWebSockets\(ip\)\.length/.test(CODE), '每 IP 那條要走 liveCount,不能直接數').toBe(false);
   });
 
   it('訂閱表不走原型鏈:Object.create(null) + Object.hasOwn,沒有 `in subs`', () => {
