@@ -2,3 +2,7 @@ allowBuilds:
   # workerd = wrangler dev 的本地 Workers 執行環境(postinstall 下載平台二進位)
   workerd: true
   esbuild: true
+  # sharp 是 vitest-pool-workers 拉進來的傳遞相依,relay 自己完全用不到 ⇒ 不跑它的
+  # postinstall(那會去抓一組平台原生二進位)。要明寫 false 而不是留空:
+  # 留空時 pnpm install 會以 ERR_PNPM_IGNORED_BUILDS 非零離開,而 vitest 啟動前會跑 install。
+  sharp: false

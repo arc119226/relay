@@ -1,10 +1,10 @@
 /**
- * Router。四條路:
- *   OPTIONS /                                → 204 + CORS(NIP-11 要求,見下)
- *   GET /       + Accept: application/nostr+json → NIP-11 relay information document
- *   GET /       + Upgrade: websocket         → RelayDO(單例)
- *   GET /       (兩者皆無)                    → 一段給人看的純文字
- *   GET /health                              → {ok:true},不碰 DO
+ * Router。五條路:
+ *   OPTIONS /                                    → 204 + CORS(NIP-11 要求,見下)
+ *   GET|HEAD /  + Accept: application/nostr+json → NIP-11 relay information document
+ *   GET /       + Upgrade: websocket             → RelayDO(單例)
+ *   GET|HEAD /  (兩者皆無)                        → 一段給人看的純文字
+ *   GET|HEAD /health                             → {ok:true},不碰 DO
  * 其他一律 404。
  *
  * ## 順序有兩處是契約
@@ -14,6 +14,13 @@
  *    瀏覽器客戶端會直接失敗。
  * 2. **NIP-11 的判斷要在 Upgrade 之前檢查 Accept、但讓 Upgrade 優先。**
  *    帶 `Upgrade` 的請求是 WebSocket 客戶端,不該拿到 JSON。
+ *
+ * ## HEAD
+ *
+ * `/health` 是給監控用的,而監控慣用 HEAD。原本 `!== 'GET'` 把 HEAD 一併打成 405 ——
+ * 一個對 HEAD 回 405 的健康檢查端點,對它唯一的使用者是壞的。
+ * HEAD 一律當 GET 走,只是不給 body(規格:HEAD 的回應沒有 body)。
+ * 帶 `Upgrade: websocket` 的 HEAD 不存在,所以那條分支不必考慮它。
  *
  * ## CORS
  *
@@ -37,7 +44,7 @@ interface Env {
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'Accept, Content-Type',
-  'access-control-allow-methods': 'GET, OPTIONS',
+  'access-control-allow-methods': 'GET, HEAD, OPTIONS',
 } as const;
 
 export default {
@@ -47,9 +54,11 @@ export default {
     if (req.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: { ...CORS } });
     }
-    if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
+    // HEAD 一律當 GET 走(監控慣用 HEAD 打 /health),差別只在不給 body
+    const head = req.method === 'HEAD';
+    if (req.method !== 'GET' && !head) return new Response('method not allowed', { status: 405 });
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ ok: true }), {
+      return new Response(head ? null : JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'content-type': 'application/json; charset=utf-8' },
       });
@@ -60,11 +69,12 @@ export default {
       if ((req.headers.get('Accept') ?? '').includes('application/nostr+json')) {
         // **不碰 DO**:純靜態回應。DO 的請求是計費的,而這支會被爬。
         // host 從請求取,不寫死網域 —— 這個 repo 是給人 fork 自架的。
-        return new Response(JSON.stringify(relayInfo(url.host)), {
+        return new Response(head ? null : JSON.stringify(relayInfo(url.host)), {
           status: 200,
           headers: { 'content-type': 'application/nostr+json', ...CORS },
         });
       }
+      if (head) return new Response(null, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
       return new Response(
         'NIP-01 子集的 WebSocket 訊令 relay,什麼都不存。\n' +
           '用 wss:// 連。機器可讀的能力宣告:GET / 帶 Accept: application/nostr+json\n' +
