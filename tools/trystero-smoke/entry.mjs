@@ -11,8 +11,12 @@
 // 也可以直接給清單：?relays=wss://a,wss://b
 import { joinRoom, getRelaySockets, selfId } from 'trystero/nostr';
 
-const ANCHOR = 'wss://relay.arc.idv.tw';
-// 柴米帳 public/relays.json 的內容（升級橋接期刻意就是舊版洗出來的那五台）
+// 自架那台的位址。**用 ?anchor= 換掉**,不要改這裡 —— fork 這個 repo 的人跑預設情境
+// 不應該去打作者的正式站(那樣拿到的綠燈證明的是別人的服務還活著,不是你的)。
+const ANCHOR = new URLSearchParams(location.search).get('anchor') ?? 'ws://127.0.0.1:8787';
+// 一組公共 relay。⚠️ 這是**手抄的快照,會腐敗** —— 2026-09-03 實測這五台只有兩台是活的
+// (staging.yabu.me / relay2.angor.io)。留著是當「舊清單」的回歸用,不是「現況」。
+// 要知道現在哪幾台能用,跑柴米帳的 tools/probe-relays.mjs。
 const PUBLIC = [
   'wss://hornetstorage.net/relay',
   'wss://slick.mjex.me',
@@ -20,9 +24,9 @@ const PUBLIC = [
   'wss://relay2.angor.io',
   'wss://communities.nos.social',
 ];
-// 連不上的位址，用來假裝錨點掛了。指到自架網域的一個不存在的子網域，
+// 連不上的位址,用來假裝錨點掛了。指到一個不存在的子網域,
 // 確定它會失敗而不是意外連上別人的 relay。
-const DEAD_ANCHOR = 'wss://suspended.relay.arc.idv.tw';
+const DEAD_ANCHOR = 'wss://suspended.invalid.example';
 
 const SCENARIOS = {
   solo: [ANCHOR],
@@ -37,8 +41,9 @@ const scenario = q.get('scenario') ?? 'solo';
 const relays = q.get('relays') ? q.get('relays').split(',') : (SCENARIOS[scenario] ?? SCENARIOS.solo);
 // 每次載入換一個房間，才不會撞到正式站正在進行的同步（topic = SHA-1(appId+roomId)）
 const room = q.get('room') ?? `smoke-${Math.floor(Date.now() / 1000)}`;
-// 柴米帳真正的 appId：這樣派生金鑰與 topic 的算法跟正式站一致
-const appId = q.get('appId') ?? 'zhangben-sync-v1';
+// 預設用 relay 自己的 appId。要重現柴米帳的情境就傳 ?appId=zhangben-sync-v1 ——
+// 那會讓派生金鑰與 topic 的算法跟柴米帳正式站一致(appId 不是秘密,它在客戶端 bundle 裡)。
+const appId = q.get('appId') ?? 'relay-smoke';
 
 const t0 = Date.now();
 const out = { role, scenario, relays, room, selfId, peerJoined: null, got: null, sockets: null, warnings: [], error: null };

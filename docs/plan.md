@@ -183,12 +183,29 @@ Trystero 零 warning、瀏覽器 console 空、relay 端 log 四次 `101 Switchi
 
 跑法：
 ```bash
-E=$(ls -d node_modules/.pnpm/esbuild@*/node_modules/esbuild/bin/esbuild | head -1)
-NODE_PATH=C:/gitcode/accounting/packages/client/node_modules node "$E" tools/trystero-smoke/entry.mjs   --bundle --format=esm --platform=browser --outfile=tools/trystero-smoke/dist/bundle.js
+pnpm smoke:build               # esbuild 打包成一頁，零外部路徑
 pnpm dev                       # relay 在 8787
 # 另開一個靜態伺服器把 tools/trystero-smoke/ 端在 4322（.js 要給 text/javascript，module script 認 MIME）
 # 瀏覽器開 http://127.0.0.1:4322/index.html，看 window.__result 與 iframe 的 contentWindow.__result
 ```
+
+情境用 query 選（預設 `solo`，打 `ws://127.0.0.1:8787`）：
+
+| 參數 | 意思 |
+| --- | --- |
+| `?scenario=solo` | 只打自架那台（預設）。階段 3 的驗收 |
+| `?scenario=full` | 錨點 + 五台公共 |
+| `?scenario=anchor` | 只有錨點 —— 證明公共全掛也配得上 |
+| `?scenario=failover` | 錨點指向連不上的位址 + 五台公共 —— 等同「把 Worker 暫停」 |
+| `?anchor=wss://…` | 換掉錨點位址（**要打正式站就用這個**） |
+| `?relays=a,b` | 完全自訂清單 |
+| `?appId=…` | 換 appId（用 `zhangben-sync-v1` 可重現柴米帳的派生結果） |
+
+⚠️ **這一段原本寫死作者本機的路徑**（`NODE_PATH=C:/gitcode/accounting/...`），
+而且預設情境直接打作者的正式站 —— 意思是任何 fork 這個 repo 的人：打不出包，
+就算打出來了，拿到的綠燈證明的也是**別人的服務還活著**，不是自己那台對。
+2026-09-03 修掉：`trystero` 與 `esbuild` 進 devDependencies，預設改成 `127.0.0.1:8787`，
+正式站位址改用 `?anchor=` 傳。**這個 repo 的驗收，任何人 clone 下來都跑得起來。**
 
 ⚠️ **Windows 上收 `wrangler dev` 的坑（這次踩了三輪）**：`pkill -f "wrangler dev"` 跟 `taskkill /IM workerd.exe`
 都收不乾淨 —— 真正的父行程命令列是 `node ".../wrangler/bin/wrangler.js" dev --port 8787`（沒有
