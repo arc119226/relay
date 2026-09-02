@@ -1,0 +1,41 @@
+relay — NIP-01 子集的 WebSocket 訊令 relay
+Copyright 2026 Arc Liu
+
+本產品的原始碼以 Apache License 2.0 授權，全文見同目錄的 LICENSE。
+`docs/` 底下的文件另以 CC BY-SA 4.0 授權，見 docs/LICENSE.md。
+
+--------------------------------------------------------------------------------
+第三方
+--------------------------------------------------------------------------------
+
+## 執行期：無
+
+這個 Worker **零 runtime 依賴**。它只 import `cloudflare:workers` 的型別，
+其餘一律相對路徑——ESLint 機器強制（見 eslint.config.js 的 no-restricted-imports）。
+那條規則的目的不是精簡，是讓「這台 relay 不外呼任何第三方」成為
+**diff 看得見的事實**，而不是一句承諾。
+
+開發期的相依（TypeScript、Vitest、ESLint、Wrangler、esbuild）不進部署產物。
+
+## 協定：NIP-01
+
+本專案實作 Nostr 的 NIP-01 的一個**子集**（見 docs/spec.md）。
+NIP 規格由 nostr-protocol/nips 社群維護，以公有領域（CC0）釋出。
+本專案與該社群無隸屬關係，也不聲稱是完整的 Nostr relay。
+
+    https://github.com/nostr-protocol/nips
+
+## 測試資料：test/fixtures/trystero.json
+
+那份 fixture 是用 Trystero 的 `createEvent` / `subscribe` 實際產出的事件與訂閱請求，
+用途是驗證本專案對 NIP-01 序列化的理解與客戶端一致（見 test/nip01.test.ts）。
+它是執行程式得到的資料，不含 Trystero 的原始碼。
+
+Trystero 以 MIT 授權：
+
+    https://github.com/dmotz/trystero
+
+## 工具：tools/trystero-smoke/
+
+那支冒煙測試會在**本機**把 Trystero 打包成一頁來跑（見 docs/plan.md 階段 3）。
+打包產物在 `.gitignore` 裡，不隨本 repo 散布。

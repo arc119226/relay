@@ -291,8 +291,9 @@ relayConfig: {
 
 ---
 
-## 5. 還要你決定的
+## 5. 當初懸著的決定（都已裁決，留著是因為理由有用）
 
-1. **網域**：`relay.arc.idv.tw`？還是 `nostr.arc.idv.tw`、`signal.arc.idv.tw`？
-   只影響 `wrangler.jsonc` 一行跟柴米帳那一行。
-2. **階段 0 現在就跑，還是先看過計畫**？probe 是 20 行 + `wrangler dev`，不碰正式環境。
+1. **網域** —— 選了 `relay.arc.idv.tw`。只影響 `wrangler.jsonc` 一行跟客戶端那一行，要換很便宜。
+2. **先量再寫** —— 階段 0 的 probe（20 行 + `wrangler dev`）先跑，把 `serializeAttachment` 的上限從
+   「記憶中的 2KB」變成實測的 16384。那個習慣後來救了不只一次:每 IP 上限也是先量到
+   「寫 8 實際只有 6」才發現半開連線的洩漏。

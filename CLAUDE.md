@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-NIP-01 子集的 WebSocket 廣播器，跑在 Cloudflare Durable Object 上，給柴米帳當 WebRTC 訊令。
+NIP-01 子集的 WebSocket 廣播器，跑在 Cloudflare Durable Object 上，當 WebRTC 訊令用。
+目前唯一的客戶端是 [柴米帳](https://github.com/arc119226/accounting)（雙人記帳 PWA）。
+對外的說明在 [README.md](README.md)，貢獻規則在 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 **開任何新 session 先照這個順序讀**：[README.md](README.md)（前因後果）→ [docs/plan.md](docs/plan.md)（做到哪、下一步）→ [docs/spec.md](docs/spec.md)（協定細節，動到 `src/` 才需要）。
 
@@ -37,4 +39,6 @@ node tools/smoke-nip01.mjs   # 對跑著的 relay 做 14 條 NIP-01 即時檢查
 
 ## 參照
 
-super-reversi2 的 `packages/signal/`（DO 骨架與機器鎖）、accounting 的 `sync/trystero.ts`（客戶端）。路徑與要抄哪幾段在 README。
+DO 骨架與機器鎖的原型來自作者的另一個專案 super-reversi2 的 `packages/signal/`；
+客戶端那一側是 accounting 的 `sync/trystero.ts` 與 `sync/relays.ts`。
+兩者都是公開 repo，但**本 repo 不相依於它們** —— 需要的東西都已經抄進來或寫在 docs/spec.md。
