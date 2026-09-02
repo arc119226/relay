@@ -7,6 +7,9 @@
 import { describe, expect, it } from 'vitest';
 import SRC from '../src/relay.ts?raw';
 
+/** 整個 `src/` 的原始碼。有幾條鎖守的是「全檔都不准出現某種東西」,那種不能只掃 relay.ts。 */
+const SRC_ALL = import.meta.glob('../src/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+
 /** 剝掉註解再比對 —— 檔頭正文會提到 `ctx.storage` 這幾個字,那不算違規 */
 const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 /** fanOut 那個方法的本體(從簽名到下一個方法) */
@@ -77,8 +80,19 @@ describe('RelayDO 結構鎖', () => {
     expect(verify - eventBranch, 'writeAttachment 要緊貼在 await 之前的那個分支裡').toBeLessThan(400);
   });
 
-  it('不拉簽章驗證進來(鐵律 5)', () => {
-    expect(/noble|secp256k1|schnorr/i.test(CODE), 'relay.ts 不該碰 secp256k1').toBe(false);
+  it('不拉簽章驗證進來(鐵律 5)—— 掃整個 src/,不只 relay.ts', () => {
+    // ⚠️ 這條原本只掃 relay.ts,可是**簽章與 id 驗證的程式在 nip01.ts** —— 鎖跟被鎖的
+    // 東西不在同一個檔。eslint 的 no-restricted-imports 擋得住 `import '@noble/secp256k1'`,
+    // 但擋不住有人手刻一份塞進葉檔。所以這裡改掃 src/ 全部。
+    const ALL = Object.entries(SRC_ALL);
+    expect(ALL.length, '至少要掃到五支 src 檔,glob 沒抓到就是這條鎖失效了').toBeGreaterThanOrEqual(5);
+    for (const [file, raw] of ALL) {
+      const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      expect(/noble|secp256k1/i.test(code), `${file} 不該碰 secp256k1`).toBe(false);
+      // `schnorr` 這個字本身要放行:nip11.ts 的 description 字串就明講「不驗 schnorr 簽章」,
+      // 那是**對外宣告這件事沒做**,不是做了。要擋的是拿它當物件用(schnorr.verify / .sign)。
+      expect(/schnorr\s*\./i.test(code), `${file} 不該呼叫 schnorr.*`).toBe(false);
+    }
   });
 });
 
