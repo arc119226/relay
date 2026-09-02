@@ -233,12 +233,40 @@ Hibernation 會把記憶體清掉，所以**訂閱狀態必須存進 `serializeA
 | `authors` / `ids` / `until` / `limit` / `#e` / `#p` | 客戶端不送 |
 | 一個 REQ 多個 filter | 客戶端只送一個 |
 | 驗 schnorr 簽章 | 金鑰是每次隨機的，驗了擋不到任何人（第 4 節） |
-| NIP-11 relay 資訊 | Trystero 不讀。想給人看的話再加，很便宜 |
 | NIP-42 AUTH | 沒有穩定身分可以認 |
 | NIP-13 工作量證明 | 這是防公共洗版用的，私有 relay 用不到 |
 | 刪除、取代、過期 | 沒有東西被存下來 |
 
 ---
+
+## 7.5 NIP-11（2026-09-03 補做）
+
+原本在上面那張「刻意不做」的表裡，理由是「Trystero 不讀」——那在**只有一個客戶端**的
+前提下成立，開源之後不成立：任何 Nostr 客戶端接上一台陌生 relay，第一件事就是
+`GET /` 帶 `Accept: application/nostr+json` 問「你支援什麼」。沒有答案的話，它們只能
+**靠試錯**發現這台只吃 kind 20000–29999、只認 `#x`、一個 REQ 只收一個 filter，
+而那些拒絕會以 `NOTICE` 出現，看起來像壞掉。
+
+實作在 `src/nip11.ts`（純函式葉檔）加上 `src/index.ts` 的兩條新路由。三個關鍵決定：
+
+- **`limitation` 的數字一律 import 自 `limits.ts`，不得複寫字面量。**
+  一份會說謊的能力宣告比沒有更糟——客戶端會照它調參數，然後在真正的閘門上撞牆。
+  `test/nip11.test.ts` 逐項斷言兩邊相等，`tools/check-nip11.mjs` 再對**跑起來的服務**驗一次。
+- **三個欄位刻意不填**（查過規格全文才決定的）：`retention`（規格裡根本沒有這個欄位）、
+  `created_at_lower_limit` / `_upper_limit`（規格沒定義是絕對時戳還是相對偏移，範例是
+  `31536000` 與 `3`，只有讀成偏移才講得通；填了若被讀成絕對時戳，`900` 等於
+  「1970 年之後的事件全拒收」）、`pubkey` / `contact`（沒有穩定身分）。
+  這三件事改寫進 `description` 散文。
+- **`max_filters: 1`** 不在規格的欄位表裡，是常見的擴充。規格說客戶端必須忽略看不懂的
+  欄位，所以放著安全，而不宣告的話客戶端一定會踩（我們對多 filter 的 REQ 回 `invalid`）。
+
+另外補了 `OPTIONS /`。**「一個 HTTP 回應的事」講少了，實際是兩個**：NIP-11 明文要求
+relay 送三個 `Access-Control-Allow-*`，而原本的 router 把 method 檢查放在 path 比對之前，
+任何 OPTIONS 都拿到裸 405。
+
+⚠️ 澄清一個常見誤解：**單純的 NIP-11 抓取不會觸發 preflight**——`accept` 是 CORS
+安全清單內的標頭名，而 `application/nostr+json` 只含字母、`/`、`+`，都不是 CORS-unsafe
+request-header byte。OPTIONS 那條存在的理由是規格的 MUST，不是 preflight。
 
 ## 8. 要先決定的事
 

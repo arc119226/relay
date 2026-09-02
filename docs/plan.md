@@ -22,9 +22,11 @@ relay/
 ├── eslint.config.js             兩條鐵律（見 §3）
 ├── wrangler.jsonc               name: relay；routes: relay.arc.idv.tw；一顆 DO
 ├── src/
-│   ├── index.ts                 router：GET / (Upgrade) → RelayDO；GET /health；其他 404
+│   ├── index.ts                 router：OPTIONS / → CORS；GET / (Accept: nostr+json) → NIP-11；
+│   │                            GET / (Upgrade) → RelayDO；GET /health；其他 404
 │   ├── relay.ts                 RelayDO —— 只做 I/O + 時間；裁決全在純函式
 │   ├── nip01.ts                 純函式：訊息框架的解析與驗形（EVENT/REQ/CLOSE）、event id 驗證
+│   ├── nip11.ts                 純函式：relay information document（2026-09-03 補，見 spec §7.5）
 │   ├── match.ts                 純函式：filter 比對（kinds ∩ since ∩ #x）
 │   └── limits.ts                純函式：常數 + token bucket（從 chatLogic 搬）
 ├── test/
@@ -249,7 +251,6 @@ relayConfig: {
 | 驗 schnorr 簽章 | spec §4：金鑰每次隨機，驗了擋不到人；而且 Workers 沒 secp256k1 |
 | 任何 `ctx.storage` | 零儲存是整件事便宜的原因；機器鎖守著 |
 | 多顆 DO / 分片 | 一個客戶、一個月幾次配對；先做單例 |
-| NIP-11 | Trystero 不讀；以後想給人看再加，一個 HTTP 回應的事 |
 | 自訂協定 | 講 NIP-01 才有公共 relay 當備援（spec §8） |
 | 把 super-reversi2 搬過來 | 它自己那套撮合解得更好；這個 relay 比 DuelRoomDO 弱 |
 | 從 ChatDO 複製貼上 | 它跳過發送者，這裡不能跳；重寫比改安全 |

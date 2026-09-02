@@ -23,7 +23,10 @@ plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把
 
 ## 不做
 
-公共 relay、事件儲存、NIP-11、NIP-42、分片、自訂協定、把 super-reversi2 搬過來。清單跟理由在 plan §2。
+公共 relay、事件儲存、NIP-42、分片、自訂協定、把 super-reversi2 搬過來。清單跟理由在 spec §7。
+
+NIP-11 **已經做了**（2026-09-03，見 spec §7.5）：`src/nip11.ts` 是純函式葉檔，
+`limitation` 的數字一律 import 自 `limits.ts` —— **不得複寫字面量**，會說謊的能力宣告比沒有更糟。
 
 ## 指令
 

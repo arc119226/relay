@@ -28,7 +28,7 @@ export default tseslint.config(
     // 鐵律 3:純函式葉檔必須決定論 —— 時間與隨機一律由 relay.ts 殼層以參數餵入。
     // ⚠️ 新增葉檔請**擴充這個陣列**,不要另開 block:flat config 同名規則後蓋前,
     //    另開一塊會讓其中一邊靜默失效而 lint 照樣全綠(super-reversi2 P128-S6 踩過)。
-    files: ['src/nip01.ts', 'src/match.ts', 'src/limits.ts'],
+    files: ['src/nip01.ts', 'src/match.ts', 'src/limits.ts', 'src/nip11.ts'],
     rules: {
       'no-restricted-properties': [
         'error',

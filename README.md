@@ -3,7 +3,7 @@
 一個**只講 NIP-01 子集**的 WebSocket 廣播器，跑在 Cloudflare Durable Object 上，
 給自架的 P2P 應用當 WebRTC 訊令用。收到事件就轉發給訂閱得上的人，**什麼都不存**。
 
-約 350 行程式、**零 runtime 依賴**、46 個測試。
+約 400 行程式、**零 runtime 依賴**、64 個測試。
 
 正式站：`wss://relay.arc.idv.tw`（作者自用；要用請自己架一份，見下面）
 
@@ -87,6 +87,24 @@ joinRoom(
 filter 的其他欄位（`authors`、`ids`、`until`、`limit`、`#e`、`#p`）**靜默忽略**，
 不當錯誤——未來的客戶端多送也不會壞，只是那些條件不生效。
 
+### 能力宣告（NIP-11）
+
+上面那張表也有機器可讀的版本：
+
+```bash
+curl -H 'Accept: application/nostr+json' https://relay.example.com/
+```
+
+回一份 NIP-11 relay information document，`limitation` 裡的每個數字都**直接來自
+`src/limits.ts`**（不是另外手打一份）——一份會說謊的能力宣告比沒有更糟，客戶端會照它
+調參數然後在真正的閘門上撞牆。`tools/check-nip11.mjs` 會對跑起來的服務逐項驗這件事。
+
+有三個欄位**刻意不填**，理由在 `docs/spec.md` §7.5：`retention`（規格裡沒有這個欄位）、
+`created_at_lower_limit` / `_upper_limit`（規格沒定義是絕對時戳還是相對偏移，填了會被誤讀）、
+`pubkey` / `contact`（沒有穩定身分）。那三件事改用 `description` 的散文講。
+
+`OPTIONS /` 也回 NIP-11 要求的三個 `Access-Control-Allow-*`。
+
 ## 開發
 
 需要 Node 22（`.node-version`）與 pnpm。
@@ -103,6 +121,10 @@ pnpm dev        # wrangler dev,port 8787
 # 1. 手打 NIP-01:14 條即時檢查(REQ→EOSE、扇出、竄改 id、限流…)
 node tools/smoke-nip01.mjs                       # 打本機
 node tools/smoke-nip01.mjs wss://your-relay.example   # 打線上
+
+# 1b. NIP-11 的宣告有沒有跟實際的閘門對上(比對 src/limits.ts)
+node tools/check-nip11.mjs                       # 打本機
+node tools/check-nip11.mjs https://your-relay.example
 
 # 2. 真的 Trystero 兩端配對——這是這個專案真正的驗收
 #    (Node 沒有 RTCPeerConnection,onPeerJoin 要 WebRTC 握手完成才會觸發,
@@ -137,7 +159,8 @@ deploy 期才炸），即使這顆 DO 根本不用 storage。migration tag 套�
 `npx wrangler deploy`、**build branches 只設 production 分支**——
 非 production 分支跑 `wrangler deploy` 會紅，而且對 PR 沒有意義。
 
-部署完的證明不是儀表板顯示綠色，是 `node tools/smoke-nip01.mjs wss://你的網域` 全過。
+部署完的證明不是儀表板顯示綠色，是這兩支對正式站全過：
+`node tools/smoke-nip01.mjs wss://你的網域` 與 `node tools/check-nip11.mjs https://你的網域`。
 
 ## 隱私
 
