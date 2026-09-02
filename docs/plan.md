@@ -16,14 +16,16 @@ relay/
 ├── .github/workflows/ci.yml     lint → typecheck → test → wrangler deploy --dry-run
 ├── .node-version                22
 ├── package.json                 pnpm@11.9.0；devDeps：typescript、vitest、eslint、
-│                                typescript-eslint、wrangler、@cloudflare/workers-types
-├── pnpm-workspace.yaml          allowBuilds: esbuild, workerd
+│                                typescript-eslint、wrangler、@cloudflare/workers-types、
+│                                @cloudflare/vitest-pool-workers（釘 0.12.21，見下）
+├── pnpm-workspace.yaml          allowBuilds: esbuild, workerd, sharp:false
 ├── tsconfig.json                照抄 super-reversi2 的 tsconfig.base.json，加 workers-types
 ├── eslint.config.js             兩條鐵律（見 §3）
+├── vitest.config.ts             兩個 project：unit（node）+ workers（workerd）
 ├── wrangler.jsonc               name: relay；routes: relay.arc.idv.tw；一顆 DO
 ├── src/
-│   ├── index.ts                 router：OPTIONS / → CORS；GET / (Accept: nostr+json) → NIP-11；
-│   │                            GET / (Upgrade) → RelayDO；GET /health；其他 404
+│   ├── index.ts                 router：OPTIONS / → CORS；GET|HEAD / (Accept: nostr+json) → NIP-11；
+│   │                            GET / (Upgrade) → RelayDO；GET|HEAD /health；其他 404
 │   ├── relay.ts                 RelayDO —— 只做 I/O + 時間；裁決全在純函式
 │   ├── nip01.ts                 純函式：訊息框架的解析與驗形（EVENT/REQ/CLOSE）、event id 驗證
 │   ├── nip11.ts                 純函式：relay information document（2026-09-03 補，見 spec §7.5）
@@ -33,11 +35,22 @@ relay/
 │   ├── nip01.test.ts
 │   ├── match.test.ts
 │   ├── limits.test.ts
-│   └── storageFree.test.ts      原始碼比對機器鎖（從 chatStorageFree 搬）
+│   ├── nip11.test.ts            宣告的每個數字 === limits.ts 的那個常數
+│   ├── storageFree.test.ts      原始碼比對機器鎖（從 chatStorageFree 搬）
+│   ├── relay.behaviour.test.ts  ⭐ 在 workerd 裡真的跑 Worker + RelayDO（完工稽核補的）
+│   └── fixtures/trystero.json   真的 Trystero 產的事件，用來驗序列化一致
+├── tools/
+│   ├── smoke-nip01.mjs          對跑起來的 relay 做 14 條 NIP-01 即時檢查
+│   ├── check-nip11.mjs          對跑起來的 relay 驗「宣告 === limits.ts」
+│   └── trystero-smoke/          真 Trystero 兩端配對（?scenario=）
 └── docs/
     ├── spec.md
     └── plan.md
 ```
+
+⚠️ **`@cloudflare/vitest-pool-workers` 釘 0.12.21，不要升。** 0.13 起 peer 是 `vitest ^4`，
+這個 repo 在 vitest 3.2.7；0.12.21 是最後一個支援 3.2.x 的。要升就得連 vitest 一起升。
+另外 0.13+ 把 config helper 從 `./config` 搬走了，升上去 `vitest.config.ts` 會直接 load 失敗。
 
 **為什麼 `relay.ts` 不叫 `chat.ts` 抄過來改**：ChatDO 的 fan-out **跳過發送者**，
 NIP-01 relay **不能跳**（spec §3）。抄過來改最容易把這條抄錯，而且 `chatStorageFree.test`
@@ -209,15 +222,16 @@ listener，`/health` 打到死的那顆就回空。要用 PowerShell 照命令�
 修法見下面那個 commit：`liveCount()` —— 在達到上限時才掃，用令牌桶的 `at` 當最後活動時間，
 沉默超過 `IDLE_REAP_MS`（5 分鐘）就順手 `close(1001,'idle')` 並且不計數。零額外儲存。
 
-🔧 **2026-09-02 repo 側備妥，儀表板側待做。**
+✅ **2026-09-02 repo 側與儀表板側都完成了。** 下面這串留著，因為它是部署設定的清單：
 - `.github/workflows/ci.yml`：lint → typecheck → test → `wrangler deploy --dry-run`。不 deploy、不帶憑證。
   照抄 dev-blog 的兩條坑：`pnpm/action-setup` 不設 version（packageManager 是唯一真相）、
   Node 版本讀 `.node-version`。
 - `package.json` 加 `deploy` = `wrangler deploy`（手動用）。
 - README 加「部署」一節，儀表板五個欄位的值與理由列成表。
 - `wrangler.jsonc` 從階段 0 起就是正式的：`name: relay`、`routes: relay.arc.idv.tw`、migration v1 `RelayDO`。
-剩下的是點滑鼠：Workers Builds 連 GitHub、Worker 名字 `relay`、build 留空、deploy `npx wrangler deploy`、
-只建 `main`。做完把 `entry.mjs` 的 RELAY 指到 `wss://relay.arc.idv.tw` 重跑 trystero-smoke，那才是這一階段的證明。
+儀表板側（**已完成**）：Workers Builds 連 GitHub、Worker 名字 `relay`、build 留空、
+deploy `npx wrangler deploy`、只建 `main`。`entry.mjs` 也已指向 `wss://relay.arc.idv.tw`
+並重跑過 trystero-smoke —— 那就是這一階段的證明，見上面那段 ✅。
 
 ### 階段 5 · 半小時 · 接進柴米帳
 
@@ -247,7 +261,7 @@ relayConfig: {
 實際做法：錨點寫死在程式裡（`sync/relays.ts` 的 `ANCHOR`，遠端動不到），後段公共清單放
 `public/relays.json` 同源可更新（`.json` 不進 SW precache ⇒ 永遠走網路），啟動時自動拉、
 設定頁有手動更新鈕。**改一份 JSON 部署上去就換掉，不必發新版 bundle。**
-柴米帳側 PR #12（`5c13ad9`），15 條測試鎖住「`relayUrls()` 恆非空且第一個恆是錨點」。
+柴米帳側 PR #12（`5c13ad9`），13 條測試鎖住「`relayUrls()` 恆非空且第一個恆是錨點」。
 
 **證明**：真手機那半沒做（要兩支在手邊）。可以做的那半用真 Trystero 在瀏覽器裡跑 ——
 `tools/trystero-smoke/` 加了 `?scenario=`，用柴米帳**真正的 `appId`**（`zhangben-sync-v1`），
@@ -255,14 +269,35 @@ relayConfig: {
 
 | 情境 | relay 清單 | host / guest 配對 |
 | --- | --- | --- |
-| `full` | 錨點 + `relays.json` 的五台（＝正式站現況） | 727 / 672 ms |
+| `full` | 錨點 + `relays.json` 當時的五台 | 727 / 672 ms |
 | `anchor` | 只有錨點 | 2193 / 2149 ms |
 | `failover` | **錨點換成連不上的位址** + 五台公共 | 665 / 615 ms |
 
-`failover` 就是「把 Worker 暫停再同步一次」的等價替代，而且不必真的動正式站：
+⚠️ 這張表原本寫「`full` ＝正式站現況」。**跑完十分鐘就不成立了** —— 下面那條 🐛 的結果
+讓柴米帳把 `relays.json` 換掉了（accounting `8211406`）。`entry.mjs` 的 `PUBLIC` 是手抄的
+一份快照，會腐敗；它現在的用途是「舊清單的回歸」，不是「正式站現況」。
+**要驗正式站現況請去柴米帳跑 `tools/probe-relays.mjs`，不要讀這張表。**
+
+`failover` 是「把 Worker 暫停再同步一次」的替代，而且不必真的動正式站：
 socket 快照確認 `wss://suspended.relay.arc.idv.tw` 是 `closed`，配對由公共那幾台完成。
-**自架的不是單點，這條證完了。** 反過來 `anchor` 證明公共全掛也配得上，只是慢一倍
-（只有一台就沒得挑最快的）。
+⇒ **錨點掛掉時公共 relay 真的接得住，自架那台不是單點。** 這一條證完了。
+
+**但要說清楚它沒證到什麼**，免得日後把它讀得太滿：
+
+1. **受測物是一頁裸 Trystero，不是柴米帳。** 階段 5 真正交付的那些程式（`relayUrls()`、
+   `relays.json` 拉取與清洗、`MAX_TAIL`、localStorage 快取、離線退回 `BUNDLED_TAIL`）
+   在這條情境裡一行都沒執行 —— 它們由柴米帳自己的 13 條單元測試蓋住。
+   分工是刻意的（決定性邏輯進單元測試、網路配對命題進瀏覽器 smoke），但別把它說成
+   「柴米帳會 failover」已經驗過了。
+2. **兩端的公共清單必然相同。** iframe 繼承整串 query，所以 host 與 guest 拿到逐字一樣的
+   `relays`。而錨點存在的理由之一正是「**兩支手機的公共清單可能不同**」——
+   那個 hazard 是靠錨點恆在**結構性關掉**的，不是這裡測掉的；也測不掉，因為
+   failover 的前提就是把錨點拿走。
+3. 真手機那半沒做（要兩支在手邊）。
+
+反過來 `anchor` 證明公共全掛也配得上，只是**慢了約三倍**（2193 對 727 ms）。
+原因不只是「沒得挑最快的」—— 單一 relay 沒有備援可以並行嘗試，配對時間就是那一台的
+往返時間，沒有其他台可以先到先贏。
 
 🐛 **順手量到一件更該處理的事：`relays.json` 那五台，只有兩台是活的。**
 `full` 情境的 warning 整排都是同兩台在噴。寫了一支探針逐台實測「送得進去且收得回來」
@@ -277,6 +312,58 @@ socket 快照確認 `wss://suspended.relay.arc.idv.tw` 是 `closed`，配對由�
 也就是說**柴米帳這半年其實是靠兩台在配對**，其中一台叫 staging。這件事在自架之前不會有人
 發現 —— 症狀是「偶爾配對比較慢」，不是錯誤。這反過來說明錨點的價值不只是「多一台」：
 它是唯一一台**壞了我會知道**的。探針收進柴米帳 `tools/probe-relays.mjs`，下次換清單先跑它。
+
+### 階段外 · NIP-11（2026-09-03）
+
+**沒有階段編號，因為它是開源前才決定要做的**（原本在 spec §7 的「不做」表裡，
+理由是「Trystero 不讀」——那在只有一個客戶端時成立，公開之後不成立）。
+設計、三個被規格擋掉的欄位、以及 `OPTIONS` 那條路由的理由，全寫在 **spec §7.5**。
+
+**證明**：`node tools/check-nip11.mjs https://relay.arc.idv.tw` —— 它把**線上回來的**
+`limitation` 逐項對 `src/limits.ts` 的常數比。這一條就是整個功能的重點：
+宣告與實作對不上就是在騙客戶端，而客戶端會照它調參數然後在真正的閘門上撞牆。
+CI 跑不動它（要一個跑起來的服務），CI 側的等價物是 `test/nip11.test.ts` 逐項斷言。
+
+⚠️ 這一項當初**沒有寫進 plan 也沒有留證明動作**，是後來稽核才補上的。
+插隊做的東西也要留一段，否則 plan 會宣稱「六階段全完成」而其中一整塊功能不在任何階段裡。
+
+---
+
+### 完工稽核（2026-09-03）
+
+六階段標完之後做的一次「這個宣稱哪裡不成立」的稽核：六個面向平行找、每條發現再派兩個
+立場不同的覆核者對抗式駁斥（懷疑論者 + 維護者），提出 50 條、留下 46 條。
+**它推翻了「做完了」這個宣稱**，修掉的實質缺陷有三類：
+
+**1. 正式站上真的有一個洩漏（`749d692`）**
+階段 4 在正式站量到「每 IP 上限寫 8 實際只開得了 6」，當時只修了每 IP 那一條。
+**同一個洩漏在全域那條原封不動**：`readyState === WS_OPEN` 濾不掉半開 socket
+（半開的 readyState 正是 OPEN 而且不會自己消失），而且那條 503 排在每 IP 那條**之前**，
+連「回來的 IP 順手清一清」這唯一的自癒路徑都被自己擋掉 ⇒ 累積到 200 之後對所有人回 503，
+只有重新部署救得回來。行動網路每次換 IP，留下的半開 socket 不會有人回來掃，所以這會發生。
+`liveCount` 改成 `reapAndCount(sockets, nowMs)`，兩道閘餵同一支。
+
+**2. `src/relay.ts` 從來沒有被任何測試執行過（`5959315`）**
+64 個測試對它只做原始碼字串比對，而**字串比對守的是拼字不是行為**。
+稽核當場示範兩種各改一行就把 fan-out 改成跳過發送者、而 `pnpm check` 全綠的寫法：
+加第三個參數 `sender`，或連改名都不用的 `this.lastSender === peer`（左右對調就躲掉了）。
+現在 `test/relay.behaviour.test.ts` 在 workerd 裡真的把 Worker 與 RelayDO 跑起來（18 條），
+鐵律 4 第一次有行為斷言。原始碼鎖留著當第二道防線，但改成鎖形狀而不是鎖識別字。
+
+**3. 機器鎖上的後門**
+`no-restricted-globals` 的 `fetch` 只擋裸識別字 ⇒ `globalThis.fetch` 放行；
+`no-restricted-imports` 只認靜態 import ⇒ `await import()` 放行。兩個都實測過會通過整條 check。
+⚠️ 補的時候踩到這個檔案自己警告過的坑：純函式葉檔**同時吃得到兩個 block**，
+flat config 同名規則後蓋前**不是合併**，所以共用內容要抽成陣列在兩處展開。
+七種繞法全部反向驗證會紅。
+
+還有一批文件與事實對不上的（測試數、行數、交叉引用指到不存在的節、已完成卻還寫著待做），
+一併修掉了。**最貴的一條是 `CLAUDE.md` 的「目前狀態」停在階段 3 整整兩個階段** ——
+那是新 session 第一個讀的檔案，它會讓下一個 session 去做一件已經做完的事。
+規矩因此加一句：**標掉階段的那個 commit 要同時更新 CLAUDE.md 的「目前狀態」。**
+
+**這次稽核本身的教訓**：每階段結尾的「證明」擋得住「做錯」，擋不住「沒做」與「說謊」。
+六個階段各自的證明都通過了，而上面三條沒有任何一條被那些證明碰到。
 
 ---
 

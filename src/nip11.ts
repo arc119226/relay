@@ -27,7 +27,11 @@
  * 然後在真正的閘門上撞牆。所以 `limitation` 的每個數字都直接來自 `limits.ts`,
  * `test/nip11.test.ts` 再逐項斷言兩邊相等。
  */
+// ⚠️ `max_filters` 不在 NIP-11 規格的欄位表裡,是常見的擴充欄位 —— 規格說
+// 「clients MUST ignore any additional fields they do not understand」,所以放著是安全的,
+// 而**不宣告的話客戶端一定會踩**(我們對多 filter 的 REQ 回 `invalid: multi-filter`)。
 import {
+  MAX_FILTERS,
   MAX_FRAME,
   MAX_SUBS_PER_SOCKET,
   MAX_TAGS_PER_EVENT,
@@ -41,11 +45,6 @@ import {
  *  devDependencies 整包塞進 Worker bundle,而且那支檔案在 tsconfig 的 include 之外。 */
 export const SOFTWARE_VERSION = '0.1.0';
 export const SOFTWARE_URL = 'https://github.com/arc119226/relay';
-
-/** 一個 REQ 只收一個 filter。⚠️ `max_filters` 不在規格的欄位表裡,是常見的擴充欄位——
- *  規格說「clients MUST ignore any additional fields they do not understand」,所以放著是安全的,
- *  而**不宣告的話客戶端一定會踩**(我們對多 filter 的 REQ 回 `invalid: multi-filter`)。 */
-export const MAX_FILTERS = 1;
 
 const DESCRIPTION =
   'WebRTC 訊令用的 NIP-01 子集,不是完整的 Nostr relay。' +

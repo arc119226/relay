@@ -14,7 +14,8 @@ import {
   MAX_TAGS_PER_EVENT,
   SUBID_MAX,
 } from '../src/limits';
-import { MAX_FILTERS, SOFTWARE_URL, relayInfo } from '../src/nip11';
+import { SOFTWARE_URL, relayInfo } from '../src/nip11';
+import { MAX_FILTERS } from '../src/limits';
 
 const INFO = relayInfo('relay.example.com');
 

@@ -252,6 +252,16 @@ describe('NIP-01 exchange', () => {
     ).toBeNull();
   });
 
+  it('a REQ carrying two filters is rejected (this is what max_filters=1 declares)', async () => {
+    // NIP-11 宣告 max_filters: 1。那個數字沒有對應的判斷式(實際的閘是 arity),
+    // 所以宣告與行為對不對得上要在這裡驗 —— 否則就是一份會說謊的能力宣告。
+    const a = await connect('10.0.11.1');
+    const f = { kinds: [KIND], since: nowSec() - 60, '#x': [TOPIC] };
+    a.send(['REQ', 'subTwo', f, f]);
+    const notice = await waitFor(a, (f2) => f2[0] === 'NOTICE');
+    expect(String(notice?.[1]), '兩個 filter 要被拒,而且理由要說得出是 multi-filter').toContain('multi-filter');
+  });
+
   it('a malformed filter gets a NOTICE and malformed JSON gets silence', async () => {
     const a = await connect('10.0.6.1');
     a.send(['REQ', 'subBad', { kinds: [1], '#x': [TOPIC] }]); // kind 不在 ephemeral 區段

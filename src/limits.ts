@@ -117,6 +117,16 @@ export function bucketOf(x: unknown, now: number): Bucket {
   return { tokens: Math.min(BUCKET_CAP, Math.max(0, tokens)), at };
 }
 
+/**
+ * 一個 REQ 只收一個 filter。
+ *
+ * ⚠️ 這個數字**沒有對應的判斷式** —— 實際的閘是 `nip01.ts` 的 `raw.length !== 3`(arity),
+ * 不是拿這個常數去比。放在這裡是因為它是**對外宣告的上限**(NIP-11 的 `limitation.max_filters`),
+ * 跟其他上限同一類;而兩者對得上這件事由 `relay.behaviour.test.ts` 送一個雙 filter 的 REQ
+ * 實際驗證,不是靠註解保證。
+ */
+export const MAX_FILTERS = 1;
+
 /** NIP-01 的 ephemeral 區段。Trystero 的 `topicToKind` = `strToNum(topic, 1e4) + 2e4` ⇒ 恆落在這裡。 */
 export const KIND_MIN = 20_000;
 export const KIND_MAX = 29_999;

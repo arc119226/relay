@@ -10,8 +10,10 @@ Copyright 2026 Arc Liu
 
 ## 執行期：無
 
-這個 Worker **零 runtime 依賴**。它只 import `cloudflare:workers` 的型別，
-其餘一律相對路徑——ESLint 機器強制（見 eslint.config.js 的 no-restricted-imports）。
+這個 Worker **零 runtime 依賴**。`src/` 底下**沒有任何一行非相對路徑的 import**
+（Workers 的型別來自 `@cloudflare/workers-types` 的 ambient 宣告，不需要 import；
+eslint 白名單裡的 `cloudflare:workers` 是留給 fork 的餘裕，本 repo 一次都沒用到）。
+ESLint 機器強制：靜態 import 與動態 `import()` 都擋（見 eslint.config.js）。
 那條規則的目的不是精簡，是讓「這台 relay 不外呼任何第三方」成為
 **diff 看得見的事實**，而不是一句承諾。
 

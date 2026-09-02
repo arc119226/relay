@@ -23,7 +23,8 @@
 
 ## 原則上不收的功能請求
 
-`docs/spec.md` §7 是完整清單與理由。下面這些**不是還沒排到，是已經被否決**：
+`docs/spec.md` §7（協定層面）與 `docs/plan.md` §2（專案層面）合起來才是完整清單與理由。
+下面這些**不是還沒排到，是已經被否決**：
 
 | 不做 | 為什麼 |
 | --- | --- |
@@ -41,7 +42,7 @@
 ## 送 PR 之前
 
 ```bash
-pnpm check          # lint → typecheck → test，四個都必須綠
+pnpm check          # lint → typecheck → test，三個都必須綠
 ```
 
 CI 會跑同一組加上 `wrangler deploy --dry-run`。
@@ -51,7 +52,7 @@ CI 會跑同一組加上 `wrangler deploy --dry-run`。
 - **`src/**` 零第三方 import、禁 `fetch`／`window`／`document`。**
   ESLint 機器強制。那條規則的目的不是精簡，是讓「這台 relay 不外呼任何第三方」
   成為 diff 看得見的事實
-- **純函式葉檔（`nip01.ts` / `match.ts` / `limits.ts`）禁 `Date.now`、`Math.random`。**
+- **純函式葉檔（`nip01.ts` / `match.ts` / `limits.ts` / `nip11.ts`）禁 `Date.now`、`new Date()`、`Math.random`、`crypto.getRandomValues`。**
   時間與隨機一律由 `relay.ts` 殼層以參數餵入，否則測試不可能決定論
 - **`relay.ts` 零 `ctx.storage`。** `test/storageFree.test.ts` 用原始碼比對守著
 - **順序即契約**：訊框大小閘要在 `JSON.parse` **之前**、令牌桶要在

@@ -2,7 +2,17 @@
   "name": "relay",
   "version": "0.1.0",
   "private": true,
+  "description": "NIP-01 子集的 WebSocket 訊令 relay,跑在 Cloudflare Durable Object 上。什麼都不存。",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arc119226/relay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arc119226/relay/issues"
+  },
+  "homepage": "https://github.com/arc119226/relay#readme",
+  "author": "Arc Liu",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
