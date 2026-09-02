@@ -6,7 +6,7 @@ NIP-01 子集的 WebSocket 廣播器，跑在 Cloudflare Durable Object 上，�
 
 ## 目前狀態
 
-規劃完成，零程式碼。下一步是 plan 的階段 0（`serializeAttachment` 上限實測）。
+階段 0、1 完成（骨架、`serializeAttachment` 上限 = 16384、純函式層 + 30 個測試全綠）。**下一步是 plan 的階段 2**：把 `src/relay.ts` 從 probe 換成正式的 DO，並寫 `test/storageFree.test.ts` 機器鎖。
 plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把那一階段標掉。
 
 ## 鐵律
@@ -24,8 +24,11 @@ plan 每一階段結束都有一個「證明」動作，做完就在 plan 裡把
 
 ## 指令
 
-還沒有。階段 0 開工時建立 `package.json`，照 super-reversi2 的 `packages/signal/package.json`：
-`test` = `vitest run`、`typecheck` = `tsc --noEmit`、`lint` = `eslint .`、`deploy:check` = `wrangler deploy --dry-run`。
+```bash
+pnpm check          # lint → typecheck → test，commit 前跑這個
+pnpm dev            # wrangler dev，port 8787
+pnpm deploy:check   # wrangler deploy --dry-run
+```
 
 ## 參照
 

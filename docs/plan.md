@@ -85,6 +85,13 @@ probe 用的是 Node 22 的全域 `WebSocket` 對 `wrangler dev` 二分，不需
 `eventId` 用一個**從真實 Trystero 抓下來的事件**當 fixture —— 算出來的 id 要跟它自帶的 `id` 一樣。
 這條測試等於在驗「我對 NIP-01 序列化的理解跟 Trystero 一致」。
 
+✅ **2026-09-02 完成。** `pnpm check` 全綠：eslint 乾淨、tsc 乾淨、**30 個測試**（nip01 13、match 11、limits 6）。
+fixture 是用真的 `@trystero-p2p/nostr@0.25.3` 的 `createEvent` / `subscribe` 產的（`test/fixtures/trystero.json`），
+`eventId(fixture) === fixture.id` 一次過 —— 序列化跟 Trystero 一字不差。
+eslint 兩條鐵律（禁 fetch/第三方 import；葉檔禁 Date.now/Math.random）也在這一階段進來，`pnpm lint` 擋。
+一個小偏離：`KIND_MIN/MAX`、`SUBID_MAX`、`TOPIC_MAX` 放在 `limits.ts` 而不是 `nip01.ts`，
+因為 `nip01` import `match`、`match` 又要用這些常數，放 nip01 會繞成環。
+
 ### 階段 2 · 半天 · DO 外殼
 
 `relay.ts`（RelayDO）：

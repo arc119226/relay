@@ -1,6 +1,10 @@
 /**
- * 常數與限流 —— **純函式葉檔**,零 Cloudflare 依賴。時間由殼層以 `now` 參數餵入。
- * (token bucket 在 plan 階段 1 從 super-reversi2 的 chatLogic.ts 搬過來;本檔目前只有常數。)
+ * 常數與限流 —— **純函式葉檔**,零 Cloudflare 依賴,plain vitest 直測。
+ * 時間一律由殼層以 `now` 參數餵入(eslint 禁 `Date.now` / `Math.random`)。
+ *
+ * token bucket 那段從 super-reversi2 `packages/signal/src/chatLogic.ts` 搬過來,
+ * 數字換成 spec §5。搬的理由:那套已經在線上跑過、而且「拒絕也要寫回」這條
+ * 不直覺的細節它已經踩過了。
  */
 
 /**
@@ -18,9 +22,65 @@
  */
 export const ATTACHMENT_MAX_BYTES = 16_384;
 
+/**
+ * 單一訊框位元組上限 —— **在 `JSON.parse` 之前擋**(順序即契約,storageFree.test 鎖著)。
+ * 限流是解析之後才判的,沒有這道閘,一個壞客戶端可以拿平台允許的 32 MiB 反覆逼 DO
+ * 做大型 JSON 解析而不花任何令牌。合法訊框:SDP 約 2 KB,64 KB 是很大的餘裕。
+ */
+export const MAX_FRAME = 65_536;
+
 /** 每條連線最多幾個開啟中的訂閱(subId)。Trystero 一個房間開 1 個,批次最多幾個。 */
 export const MAX_SUBS_PER_SOCKET = 20;
 /** 單一 filter 的 `#x` 主題數上限。一個房間只送 2 個(root + self);250 是客戶端批次上限,不是需求。 */
 export const MAX_TOPICS_PER_FILTER = 16;
 /** 單一 filter 的 `kinds` 長度上限。跟 `#x` 同一個理由。 */
 export const MAX_KINDS_PER_FILTER = 16;
+/** 同時連線上限(濫用上限不是產品上限;超過即拒新連線,既有的不受影響) */
+export const MAX_SOCKETS = 200;
+/** `created_at` 相對於伺服器時間的容忍(秒)。手機時鐘會歪;柴米帳自己也處理過時鐘漂移。 */
+export const CLOCK_SKEW_S = 15 * 60;
+
+/** 令牌桶:容量 40、每 50ms 回一顆 ⇒ 穩態 20 則/s、可爆發 40 則。撮合是短暫爆量不是持續流量。 */
+export const BUCKET_CAP = 40;
+export const BUCKET_REFILL_MS = 50;
+
+/** 令牌桶狀態(隨 socket 走;`at`=上次結算時刻) */
+export interface Bucket {
+  readonly tokens: number;
+  readonly at: number;
+}
+
+export const fullBucket = (now: number): Bucket => ({ tokens: BUCKET_CAP, at: now });
+
+/**
+ * 取一顆令牌:先按經過時間回補(夾在容量),再決定准不准。
+ * 回傳恆帶新桶 —— **拒絕時也要寫回**,否則被擋的人不會被計時、下一則又立刻重試。
+ */
+export function takeToken(bucket: Bucket, now: number): { readonly ok: boolean; readonly next: Bucket } {
+  const elapsed = Math.max(0, now - bucket.at);
+  const refilled = Math.min(BUCKET_CAP, bucket.tokens + elapsed / BUCKET_REFILL_MS);
+  if (refilled < 1) return { ok: false, next: { tokens: refilled, at: now } };
+  return { ok: true, next: { tokens: refilled - 1, at: now } };
+}
+
+/** attachment 反序列化容錯:壞值/缺席=給一個滿桶(限流不該因為壞資料而失效或誤擋) */
+export function bucketOf(x: unknown, now: number): Bucket {
+  if (!x || typeof x !== 'object') return fullBucket(now);
+  const r = x as Record<string, unknown>;
+  const tokens = r['tokens'];
+  const at = r['at'];
+  if (typeof tokens !== 'number' || typeof at !== 'number' || !Number.isFinite(tokens) || !Number.isFinite(at)) {
+    return fullBucket(now);
+  }
+  return { tokens: Math.min(BUCKET_CAP, Math.max(0, tokens)), at };
+}
+
+/** NIP-01 的 ephemeral 區段。Trystero 的 `topicToKind` = `strToNum(topic, 1e4) + 2e4` ⇒ 恆落在這裡。 */
+export const KIND_MIN = 20_000;
+export const KIND_MAX = 29_999;
+/** subId:Trystero 用 `genId(64)`。 */
+export const SUBID_MAX = 64;
+/** 主題字串:Trystero 是 SHA-1 逐 byte 轉 base36,實際 30–40 字元;128 是很鬆的上限。 */
+export const TOPIC_MAX = 128;
+/** 一則事件的 tags 數。Trystero 恆送 1 個(`["x", topic]`)。 */
+export const MAX_TAGS_PER_EVENT = 16;

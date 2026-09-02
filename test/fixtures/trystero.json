@@ -1,0 +1,51 @@
+{
+  "note": "由 @trystero-p2p/nostr@0.25.3 的 createEvent / subscribe 真實產出;id 與 sig 是它算的",
+  "topicA": "2p4n6g54165w2j74s1b6cn4q0233c362f4m1n",
+  "topicB": "6k5j2xj521k5i2y4r2y4t425z6e4u2jh512ln",
+  "eventA": {
+    "kind": 22690,
+    "tags": [
+      [
+        "x",
+        "2p4n6g54165w2j74s1b6cn4q0233c362f4m1n"
+      ]
+    ],
+    "created_at": 1788356261,
+    "content": "{\"hello\":\"from-A\",\"n\":1}",
+    "pubkey": "2139e8851727d9b8ba6160a64c1f9f0b42cb33b8c006b7a082ac44ce76a9260d",
+    "id": "f3eff072de8eaf32bd35bec31c0e1bdec8eb6ec5b3d48bea2fd14224b22c2719",
+    "sig": "3ee1e81c97a8aa2c62b6df5d81d55be9c61f8e8116f25345a85c06e6398a059f45dc413d797d126ff9761e933b671bb0eb6fbaad9f959543fcd039e76308b167"
+  },
+  "eventB": {
+    "kind": 22920,
+    "tags": [
+      [
+        "x",
+        "6k5j2xj521k5i2y4r2y4t425z6e4u2jh512ln"
+      ]
+    ],
+    "created_at": 1788356261,
+    "content": "plain-string-content",
+    "pubkey": "2139e8851727d9b8ba6160a64c1f9f0b42cb33b8c006b7a082ac44ce76a9260d",
+    "id": "6864c137b6b454d6aa3eb9ff867aaf6d9a8820fe5ad4ba5a9b6cbd443d642fe4",
+    "sig": "8efeb07d2fa038a5284775404d5b0422ca0178068c9dc53fffd5b30e864e1db660eefe7b408a06f3412a84b2178bc9b924ed55d711a45018026df1a81ea08443"
+  },
+  "req": [
+    "REQ",
+    "fixtureSubId0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP",
+    {
+      "kinds": [
+        22690
+      ],
+      "since": 1788356261,
+      "#x": [
+        "2p4n6g54165w2j74s1b6cn4q0233c362f4m1n"
+      ]
+    }
+  ],
+  "raw": {
+    "eventA": "[\"EVENT\",{\"kind\":22690,\"tags\":[[\"x\",\"2p4n6g54165w2j74s1b6cn4q0233c362f4m1n\"]],\"created_at\":1788356261,\"content\":\"{\\\"hello\\\":\\\"from-A\\\",\\\"n\\\":1}\",\"pubkey\":\"2139e8851727d9b8ba6160a64c1f9f0b42cb33b8c006b7a082ac44ce76a9260d\",\"id\":\"f3eff072de8eaf32bd35bec31c0e1bdec8eb6ec5b3d48bea2fd14224b22c2719\",\"sig\":\"3ee1e81c97a8aa2c62b6df5d81d55be9c61f8e8116f25345a85c06e6398a059f45dc413d797d126ff9761e933b671bb0eb6fbaad9f959543fcd039e76308b167\"}]",
+    "eventB": "[\"EVENT\",{\"kind\":22920,\"tags\":[[\"x\",\"6k5j2xj521k5i2y4r2y4t425z6e4u2jh512ln\"]],\"created_at\":1788356261,\"content\":\"plain-string-content\",\"pubkey\":\"2139e8851727d9b8ba6160a64c1f9f0b42cb33b8c006b7a082ac44ce76a9260d\",\"id\":\"6864c137b6b454d6aa3eb9ff867aaf6d9a8820fe5ad4ba5a9b6cbd443d642fe4\",\"sig\":\"8efeb07d2fa038a5284775404d5b0422ca0178068c9dc53fffd5b30e864e1db660eefe7b408a06f3412a84b2178bc9b924ed55d711a45018026df1a81ea08443\"}]",
+    "req": "[\"REQ\",\"fixtureSubId0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP\",{\"kinds\":[22690],\"since\":1788356261,\"#x\":[\"2p4n6g54165w2j74s1b6cn4q0233c362f4m1n\"]}]"
+  }
+}
