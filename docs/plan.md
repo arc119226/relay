@@ -242,6 +242,42 @@ relayConfig: {
 **證明**：兩支真手機掃 QR 同步一次。然後把 `relay.arc.idv.tw` 的 Worker 暫停，**再同步一次**，
 要照樣成功 —— 這一步證明公共 relay 真的在當備援、自架那台不是單點。
 
+✅ **2026-09-03 完成，但實作比這裡寫的多一層。** 上面那段寫死三台的 `urls` 只解了洗牌地雷，
+沒解「自己維護一份會腐敗的名單」那個代價 —— 而那正是當初否決釘清單的理由。
+實際做法：錨點寫死在程式裡（`sync/relays.ts` 的 `ANCHOR`，遠端動不到），後段公共清單放
+`public/relays.json` 同源可更新（`.json` 不進 SW precache ⇒ 永遠走網路），啟動時自動拉、
+設定頁有手動更新鈕。**改一份 JSON 部署上去就換掉，不必發新版 bundle。**
+柴米帳側 PR #12（`5c13ad9`），15 條測試鎖住「`relayUrls()` 恆非空且第一個恆是錨點」。
+
+**證明**：真手機那半沒做（要兩支在手邊）。可以做的那半用真 Trystero 在瀏覽器裡跑 ——
+`tools/trystero-smoke/` 加了 `?scenario=`，用柴米帳**真正的 `appId`**（`zhangben-sync-v1`），
+所以派生金鑰與 topic 的算法跟正式站一致：
+
+| 情境 | relay 清單 | host / guest 配對 |
+| --- | --- | --- |
+| `full` | 錨點 + `relays.json` 的五台（＝正式站現況） | 727 / 672 ms |
+| `anchor` | 只有錨點 | 2193 / 2149 ms |
+| `failover` | **錨點換成連不上的位址** + 五台公共 | 665 / 615 ms |
+
+`failover` 就是「把 Worker 暫停再同步一次」的等價替代，而且不必真的動正式站：
+socket 快照確認 `wss://suspended.relay.arc.idv.tw` 是 `closed`，配對由公共那幾台完成。
+**自架的不是單點，這條證完了。** 反過來 `anchor` 證明公共全掛也配得上，只是慢一倍
+（只有一台就沒得挑最快的）。
+
+🐛 **順手量到一件更該處理的事：`relays.json` 那五台，只有兩台是活的。**
+`full` 情境的 warning 整排都是同兩台在噴。寫了一支探針逐台實測「送得進去且收得回來」
+（用 Trystero 自己的 `createEvent` 產**真簽章**事件 —— 公共 relay 會驗 schnorr，
+自己捏的一定被拒，所以不能自己組），23 台裡 13 台可用：
+
+- `hornetstorage.net/relay` —— 改成允許清單制了：`Read access denied: User not in allowed list`
+- `slick.mjex.me` —— 每一則都 `error: internal error`
+- `communities.nos.social` —— 連不上
+- 活著的只有 `staging.yabu.me`（209 ms，全場最快，諷刺）與 `relay2.angor.io`
+
+也就是說**柴米帳這半年其實是靠兩台在配對**，其中一台叫 staging。這件事在自架之前不會有人
+發現 —— 症狀是「偶爾配對比較慢」，不是錯誤。這反過來說明錨點的價值不只是「多一台」：
+它是唯一一台**壞了我會知道**的。探針收進柴米帳 `tools/probe-relays.mjs`，下次換清單先跑它。
+
 ---
 
 ## 2. 不做的清單（動手前先讀，免得手癢）
